@@ -58,13 +58,16 @@ async def health():
 @app.get("/db-test")
 async def db_test():
     """Diagnose DB connection — remove before production."""
+    import os
     from app.config import settings
+    raw_env = os.environ.get("DATABASE_URL", "NOT_IN_OS_ENVIRON")
     url = settings.DATABASE_URL
     host_part = url.split("@")[-1] if "@" in url else url
     scheme = url.split("://")[0] if "://" in url else "unknown"
+    raw_host = raw_env.split("@")[-1][:40] if "@" in raw_env else raw_env[:40]
     try:
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
-        return {"status": "connected", "scheme": scheme, "host": host_part}
+        return {"status": "connected", "scheme": scheme, "host": host_part, "raw_env_host": raw_host}
     except Exception as e:
-        return {"status": "error", "scheme": scheme, "host": host_part, "error": str(e)[:300]}
+        return {"status": "error", "scheme": scheme, "host": host_part, "raw_env_host": raw_host, "error": str(e)[:300]}
