@@ -17,10 +17,14 @@ elif _db_url.startswith("postgresql://"):
     _db_url = _db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 # already postgresql+asyncpg:// — leave as-is
 
-# SSL connect_args — Railway internal/proxy needs none; Neon/Supabase need SSL
+# SSL connect_args — Railway internal needs ssl=False; Neon/Supabase need a cert
 _connect_args: dict = {}
 
-if "neon.tech" in _db_url:
+if "railway.internal" in _db_url:
+    # Internal Railway network — no SSL, connect plain
+    _connect_args = {"ssl": False}
+
+elif "neon.tech" in _db_url:
     _ssl_ctx = _ssl.create_default_context()
     _ssl_ctx.check_hostname = False
     _ssl_ctx.verify_mode = _ssl.CERT_NONE
