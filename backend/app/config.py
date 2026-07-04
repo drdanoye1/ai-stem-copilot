@@ -1,8 +1,10 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://localhost/math_copilot"
 
@@ -20,10 +22,6 @@ class Settings(BaseSettings):
     # App
     APP_ENV: str = "development"
     FRONTEND_URL: str = "http://localhost:3000"
-
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
 
 
 settings = Settings()

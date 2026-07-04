@@ -1,18 +1,23 @@
 """
-AI Mathematics Copilot™ — FastAPI Backend
+AI Mathematics Copilot™ — FastAPI Backend  v0.2.0
 """
+import logging
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
 from sqlalchemy import text
+
 from app.config import settings
 from app.database import create_tables, engine
 from app.routers import auth, math
 
+logger = logging.getLogger("uvicorn.error")
+
 app = FastAPI(
     title="AI Mathematics Copilot™ API",
     description="AI-powered mathematics tutoring platform",
-    version="0.1.0",
+    version="0.2.0",
     docs_url="/docs",
     redoc_url="/redoc",
 )
@@ -38,16 +43,19 @@ app.include_router(math.router, prefix=PREFIX)
 
 @app.on_event("startup")
 async def startup():
+    raw_env_db = os.environ.get("DATABASE_URL", "NOT_IN_OS_ENVIRON")
+    logger.info(f"[startup] DATABASE_URL env: {raw_env_db[:60]}")
+    logger.info(f"[startup] settings.DATABASE_URL: {settings.DATABASE_URL[:60]}")
     try:
         await create_tables()
-        print("✓ Database tables ready")
+        logger.info("[startup] ✓ Database tables ready")
     except Exception as e:
-        print(f"⚠ DB startup warning (app continues): {e}")
+        logger.warning(f"[startup] ⚠ DB warning (app continues): {e}")
 
 
 @app.get("/")
 async def root():
-    return {"service": "AI Mathematics Copilot™ API", "version": "0.1.0", "status": "ok"}
+    return {"service": "AI Mathematics Copilot™ API", "version": "0.2.0", "status": "ok"}
 
 
 @app.get("/health")
@@ -58,8 +66,6 @@ async def health():
 @app.get("/db-test")
 async def db_test():
     """Diagnose DB connection — remove before production."""
-    import os
-    from app.config import settings
     raw_env = os.environ.get("DATABASE_URL", "NOT_IN_OS_ENVIRON")
     url = settings.DATABASE_URL
     host_part = url.split("@")[-1] if "@" in url else url
