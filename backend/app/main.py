@@ -36,8 +36,8 @@ app.include_router(math.router, prefix=PREFIX)
 # ── Startup ───────────────────────────────────────────────────────────────────
 
 @app.on_event("startup")
-async def startup():
-    await create_tables()
+def startup():
+    create_tables()
 
 
 @app.get("/")

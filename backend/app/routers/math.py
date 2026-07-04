@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 from sqlalchemy import select, desc, func
 
 from app.database import get_db
@@ -288,7 +288,7 @@ def _session_out(s: MathSession) -> MathSessionOut:
 async def solve(
     req: SolveRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ):
     """AI Math Solver — step-by-step solution with LaTeX."""
     level_labels = {
@@ -355,19 +355,18 @@ async def solve(
         duration_ms=duration,
     )
     db.add(session)
-    await db.commit()
-    await db.refresh(session)
+    db.commit()
+    db.refresh(session)
 
     # Update topic progress
     try:
-        result = await db.execute(
+        progress = db.execute(
             select(UserTopicProgress).where(
                 UserTopicProgress.user_id == current_user.id,
                 UserTopicProgress.subject == req.subject,
                 UserTopicProgress.topic == "general",
             )
-        )
-        progress = result.scalar_one_or_none()
+        ).scalar_one_or_none()
         if progress:
             progress.problems_solved += 1
         else:
@@ -377,7 +376,7 @@ async def solve(
                 topic="general",
                 problems_solved=1,
             ))
-        await db.commit()
+        db.commit()
     except Exception:
         pass  # Progress update failure is non-critical
 
@@ -388,7 +387,7 @@ async def solve(
 async def explore(
     req: ExploreRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ):
     """Topic Explorer — comprehensive AI explanation of a mathematical concept."""
     max_tokens = min(max(req.max_tokens or 4096, 500), 7000)
@@ -426,8 +425,8 @@ async def explore(
         duration_ms=duration,
     )
     db.add(session)
-    await db.commit()
-    await db.refresh(session)
+    db.commit()
+    db.refresh(session)
     return _session_out(session)
 
 
@@ -435,7 +434,7 @@ async def explore(
 async def practice(
     req: PracticeRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ):
     """Practice Generator — AI-generated problems with worked solutions."""
     max_tokens = min(max(req.max_tokens or 4096, 500), 7000)
@@ -475,8 +474,8 @@ async def practice(
         duration_ms=duration,
     )
     db.add(session)
-    await db.commit()
-    await db.refresh(session)
+    db.commit()
+    db.refresh(session)
     return _session_out(session)
 
 
@@ -485,7 +484,7 @@ async def history(
     limit: int = 20,
     session_type: Optional[str] = None,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ):
     q = select(MathSession).where(
         MathSession.user_id == current_user.id
@@ -497,48 +496,46 @@ async def history(
                 q = q.where(MathSession.session_type == st)
                 break
 
-    result = await db.execute(q)
+    result = db.execute(q)
     return [_session_out(r) for r in result.scalars().all()]
 
 
 @router.get("/progress", response_model=ProgressOut)
 async def progress(
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ):
     from datetime import datetime, timedelta, timezone
 
     # Total sessions
-    total_q = await db.execute(
+    total = db.execute(
         select(func.count(MathSession.id)).where(MathSession.user_id == current_user.id)
-    )
-    total = total_q.scalar() or 0
+    ).scalar() or 0
 
     # This week
     week_ago = datetime.now(timezone.utc) - timedelta(days=7)
-    week_q = await db.execute(
+    week_count = db.execute(
         select(func.count(MathSession.id)).where(
             MathSession.user_id == current_user.id,
             MathSession.created_at >= week_ago,
         )
-    )
-    week_count = week_q.scalar() or 0
+    ).scalar() or 0
 
     # Recent sessions
-    recent_q = await db.execute(
+    recent_q = db.execute(
         select(MathSession).where(MathSession.user_id == current_user.id)
         .order_by(desc(MathSession.created_at)).limit(10)
     )
     recent = [_session_out(r) for r in recent_q.scalars().all()]
 
     # Subjects practiced
-    subj_q = await db.execute(
+    subj_q = db.execute(
         select(MathSession.subject).where(MathSession.user_id == current_user.id).distinct()
     )
     subjects = [r[0].value if r[0] else "other" for r in subj_q.fetchall()]
 
     # Topic progress
-    tp_q = await db.execute(
+    tp_q = db.execute(
         select(UserTopicProgress).where(UserTopicProgress.user_id == current_user.id)
         .order_by(desc(UserTopicProgress.problems_solved))
     )
