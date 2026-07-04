@@ -20,16 +20,12 @@ elif _db_url.startswith("postgresql://"):
 # SSL connect_args — Railway needs a permissive SSL ctx; Neon/Supabase need certs
 _connect_args: dict = {}
 
-if "railway.internal" in _db_url:
-    # Internal Railway private network — no SSL (match Promptivia's working pattern)
+if "railway.internal" in _db_url or "rlwy.net" in _db_url:
+    # Railway (public proxy or private network) — plain connection, no SSL
+    # asyncpg with ssl=None (default) does not send SSLRequest; Railway Postgres
+    # does not support PostgreSQL-level SSL negotiation. Matches Promptivia's
+    # working configuration exactly.
     _connect_args = {}
-
-elif "rlwy.net" in _db_url:
-    # Railway public proxy — needs SSL but relaxed cert verification
-    _ssl_ctx = _ssl.create_default_context()
-    _ssl_ctx.check_hostname = False
-    _ssl_ctx.verify_mode = _ssl.CERT_NONE
-    _connect_args = {"ssl": _ssl_ctx}
 
 elif "neon.tech" in _db_url:
     _ssl_ctx = _ssl.create_default_context()
