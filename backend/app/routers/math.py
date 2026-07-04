@@ -3,12 +3,11 @@ AI Mathematics Copilot™ — Math Execution Router
 Three core features: Solve, Explore, Practice
 """
 import time
-import uuid
 from typing import Any, Dict, Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
 
 from app.database import get_db
@@ -35,7 +34,7 @@ except ImportError:
 
 router = APIRouter(prefix="/math", tags=["math"])
 
-# ── Model routing (same pattern as Promptivia) ────────────────────────────────
+# ── Model routing ─────────────────────────────────────────────────────────────
 
 MODEL_PROVIDER_MAP = {
     "gpt-4o":            "openai",
@@ -167,7 +166,7 @@ class SolveRequest(BaseModel):
     problem: str
     subject: str = "algebra"
     level: str = "high_school"
-    style: str = "detailed"    # "quick", "detailed", "proof"
+    style: str = "detailed"
     model_name: str = "gpt-4o"
     max_tokens: Optional[int] = None
 
@@ -186,7 +185,7 @@ class PracticeRequest(BaseModel):
     topic: Optional[str] = None
     level: str = "high_school"
     count: int = 5
-    difficulty: str = "medium"   # "easy", "medium", "hard", "mixed"
+    difficulty: str = "medium"
     model_name: str = "gpt-4o"
     max_tokens: Optional[int] = None
 
@@ -288,7 +287,7 @@ def _session_out(s: MathSession) -> MathSessionOut:
 async def solve(
     req: SolveRequest,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """AI Math Solver — step-by-step solution with LaTeX."""
     level_labels = {
@@ -298,11 +297,6 @@ async def solve(
         "university":    "University undergraduate",
         "graduate":      "Graduate / postgraduate",
         "professional":  "Professional / research level",
-    }
-    style_instructions = {
-        "quick": "Show the main steps only (3-5 steps). Prioritize speed over verbosity.",
-        "detailed": "Show every single step with full explanation (6-12 steps or however many needed).",
-        "proof": "Provide a rigorous mathematical proof with formal notation where applicable.",
     }
     steps_instruction = {
         "quick": "## Solution\n### Step 1: [title]\n... (3-5 steps)",
@@ -355,18 +349,18 @@ async def solve(
         duration_ms=duration,
     )
     db.add(session)
-    db.commit()
-    db.refresh(session)
+    await db.commit()
+    await db.refresh(session)
 
-    # Update topic progress
     try:
-        progress = db.execute(
+        result = await db.execute(
             select(UserTopicProgress).where(
                 UserTopicProgress.user_id == current_user.id,
                 UserTopicProgress.subject == req.subject,
                 UserTopicProgress.topic == "general",
             )
-        ).scalar_one_or_none()
+        )
+        progress = result.scalar_one_or_none()
         if progress:
             progress.problems_solved += 1
         else:
@@ -376,9 +370,9 @@ async def solve(
                 topic="general",
                 problems_solved=1,
             ))
-        db.commit()
+        await db.commit()
     except Exception:
-        pass  # Progress update failure is non-critical
+        pass
 
     return _session_out(session)
 
@@ -387,7 +381,7 @@ async def solve(
 async def explore(
     req: ExploreRequest,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Topic Explorer — comprehensive AI explanation of a mathematical concept."""
     max_tokens = min(max(req.max_tokens or 4096, 500), 7000)
@@ -425,8 +419,8 @@ async def explore(
         duration_ms=duration,
     )
     db.add(session)
-    db.commit()
-    db.refresh(session)
+    await db.commit()
+    await db.refresh(session)
     return _session_out(session)
 
 
@@ -434,7 +428,7 @@ async def explore(
 async def practice(
     req: PracticeRequest,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Practice Generator — AI-generated problems with worked solutions."""
     max_tokens = min(max(req.max_tokens or 4096, 500), 7000)
@@ -474,8 +468,8 @@ async def practice(
         duration_ms=duration,
     )
     db.add(session)
-    db.commit()
-    db.refresh(session)
+    await db.commit()
+    await db.refresh(session)
     return _session_out(session)
 
 
@@ -484,7 +478,7 @@ async def history(
     limit: int = 20,
     session_type: Optional[str] = None,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     q = select(MathSession).where(
         MathSession.user_id == current_user.id
@@ -496,46 +490,41 @@ async def history(
                 q = q.where(MathSession.session_type == st)
                 break
 
-    result = db.execute(q)
+    result = await db.execute(q)
     return [_session_out(r) for r in result.scalars().all()]
 
 
 @router.get("/progress", response_model=ProgressOut)
 async def progress(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     from datetime import datetime, timedelta, timezone
 
-    # Total sessions
-    total = db.execute(
+    total = (await db.execute(
         select(func.count(MathSession.id)).where(MathSession.user_id == current_user.id)
-    ).scalar() or 0
+    )).scalar() or 0
 
-    # This week
     week_ago = datetime.now(timezone.utc) - timedelta(days=7)
-    week_count = db.execute(
+    week_count = (await db.execute(
         select(func.count(MathSession.id)).where(
             MathSession.user_id == current_user.id,
             MathSession.created_at >= week_ago,
         )
-    ).scalar() or 0
+    )).scalar() or 0
 
-    # Recent sessions
-    recent_q = db.execute(
+    recent_q = await db.execute(
         select(MathSession).where(MathSession.user_id == current_user.id)
         .order_by(desc(MathSession.created_at)).limit(10)
     )
     recent = [_session_out(r) for r in recent_q.scalars().all()]
 
-    # Subjects practiced
-    subj_q = db.execute(
+    subj_q = await db.execute(
         select(MathSession.subject).where(MathSession.user_id == current_user.id).distinct()
     )
     subjects = [r[0].value if r[0] else "other" for r in subj_q.fetchall()]
 
-    # Topic progress
-    tp_q = db.execute(
+    tp_q = await db.execute(
         select(UserTopicProgress).where(UserTopicProgress.user_id == current_user.id)
         .order_by(desc(UserTopicProgress.problems_solved))
     )
@@ -564,15 +553,15 @@ async def list_subjects():
     """Return the full mathematics curriculum structure."""
     return {
         "subjects": [
-            {"key": "arithmetic",    "label": "Arithmetic",           "icon": "Hash",     "color": "bg-sky-100 text-sky-700",    "topics": ["Number Systems", "Fractions", "Decimals", "Percentages", "Ratios", "Estimation"]},
-            {"key": "algebra",       "label": "Algebra",              "icon": "Variable", "color": "bg-blue-100 text-blue-700",  "topics": ["Linear Equations", "Quadratic Equations", "Polynomials", "Factoring", "Systems of Equations", "Inequalities", "Functions", "Exponentials", "Logarithms"]},
-            {"key": "geometry",      "label": "Geometry",             "icon": "Triangle", "color": "bg-violet-100 text-violet-700", "topics": ["Triangles", "Circles", "Polygons", "Coordinate Geometry", "Transformations", "Proofs", "3D Geometry"]},
-            {"key": "trigonometry",  "label": "Trigonometry",         "icon": "Waves",    "color": "bg-indigo-100 text-indigo-700", "topics": ["Unit Circle", "Trig Functions", "Identities", "Solving Trig Equations", "Inverse Functions", "Law of Sines/Cosines"]},
-            {"key": "precalculus",   "label": "Pre-Calculus",         "icon": "Activity", "color": "bg-purple-100 text-purple-700", "topics": ["Functions", "Polynomial Functions", "Rational Functions", "Exponential Functions", "Logarithmic Functions", "Sequences & Series"]},
-            {"key": "calculus",      "label": "Calculus",             "icon": "TrendingUp", "color": "bg-emerald-100 text-emerald-700", "topics": ["Limits", "Derivatives", "Differentiation Rules", "Applications of Derivatives", "Integrals", "Integration Techniques", "Applications of Integrals", "Multivariable Calculus"]},
-            {"key": "statistics",    "label": "Statistics & Probability", "icon": "BarChart2", "color": "bg-amber-100 text-amber-700", "topics": ["Descriptive Statistics", "Probability", "Distributions", "Hypothesis Testing", "Regression", "Confidence Intervals"]},
-            {"key": "linear_algebra", "label": "Linear Algebra",     "icon": "Grid",     "color": "bg-rose-100 text-rose-700",   "topics": ["Vectors", "Matrices", "Determinants", "Systems of Linear Equations", "Eigenvalues", "Vector Spaces", "Linear Transformations"]},
-            {"key": "differential_equations", "label": "Differential Equations", "icon": "Sigma", "color": "bg-teal-100 text-teal-700", "topics": ["First-Order ODEs", "Second-Order ODEs", "Systems of ODEs", "Laplace Transforms", "Series Solutions", "Partial Differential Equations"]},
-            {"key": "discrete_math", "label": "Discrete Mathematics", "icon": "Network",  "color": "bg-orange-100 text-orange-700", "topics": ["Logic", "Set Theory", "Combinatorics", "Graph Theory", "Number Theory", "Proofs", "Algorithms"]},
+            {"key": "arithmetic",    "label": "Arithmetic",               "icon": "Hash",       "color": "bg-sky-100 text-sky-700",      "topics": ["Number Systems", "Fractions", "Decimals", "Percentages", "Ratios", "Estimation"]},
+            {"key": "algebra",       "label": "Algebra",                  "icon": "Variable",   "color": "bg-blue-100 text-blue-700",    "topics": ["Linear Equations", "Quadratic Equations", "Polynomials", "Factoring", "Systems of Equations", "Inequalities", "Functions", "Exponentials", "Logarithms"]},
+            {"key": "geometry",      "label": "Geometry",                 "icon": "Triangle",   "color": "bg-violet-100 text-violet-700","topics": ["Triangles", "Circles", "Polygons", "Coordinate Geometry", "Transformations", "Proofs", "3D Geometry"]},
+            {"key": "trigonometry",  "label": "Trigonometry",             "icon": "Waves",      "color": "bg-indigo-100 text-indigo-700","topics": ["Unit Circle", "Trig Functions", "Identities", "Solving Trig Equations", "Inverse Functions", "Law of Sines/Cosines"]},
+            {"key": "precalculus",   "label": "Pre-Calculus",             "icon": "Activity",   "color": "bg-purple-100 text-purple-700","topics": ["Functions", "Polynomial Functions", "Rational Functions", "Exponential Functions", "Logarithmic Functions", "Sequences & Series"]},
+            {"key": "calculus",      "label": "Calculus",                 "icon": "TrendingUp", "color": "bg-emerald-100 text-emerald-700","topics": ["Limits", "Derivatives", "Differentiation Rules", "Applications of Derivatives", "Integrals", "Integration Techniques", "Applications of Integrals", "Multivariable Calculus"]},
+            {"key": "statistics",    "label": "Statistics & Probability", "icon": "BarChart2",  "color": "bg-amber-100 text-amber-700",  "topics": ["Descriptive Statistics", "Probability", "Distributions", "Hypothesis Testing", "Regression", "Confidence Intervals"]},
+            {"key": "linear_algebra","label": "Linear Algebra",           "icon": "Grid",       "color": "bg-rose-100 text-rose-700",    "topics": ["Vectors", "Matrices", "Determinants", "Systems of Linear Equations", "Eigenvalues", "Vector Spaces", "Linear Transformations"]},
+            {"key": "differential_equations","label": "Differential Equations","icon": "Sigma", "color": "bg-teal-100 text-teal-700",   "topics": ["First-Order ODEs", "Second-Order ODEs", "Systems of ODEs", "Laplace Transforms", "Series Solutions", "Partial Differential Equations"]},
+            {"key": "discrete_math", "label": "Discrete Mathematics",     "icon": "Network",    "color": "bg-orange-100 text-orange-700","topics": ["Logic", "Set Theory", "Combinatorics", "Graph Theory", "Number Theory", "Proofs", "Algorithms"]},
         ]
     }

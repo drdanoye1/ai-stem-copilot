@@ -11,7 +11,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_db
@@ -81,7 +81,7 @@ def create_token(user_id: str) -> str:
 
 async def get_current_user(
     token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ) -> User:
     exc = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -97,7 +97,8 @@ async def get_current_user(
         raise exc
 
     from uuid import UUID
-    user = db.execute(select(User).where(User.id == UUID(user_id))).scalar_one_or_none()
+    result = await db.execute(select(User).where(User.id == UUID(user_id)))
+    user = result.scalar_one_or_none()
     if not user or not user.is_active:
         raise exc
     return user
@@ -106,9 +107,9 @@ async def get_current_user(
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/register", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
-async def register(req: RegisterRequest, db: Session = Depends(get_db)):
-    existing = db.execute(select(User).where(User.email == req.email)).scalar_one_or_none()
-    if existing:
+async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
+    existing = await db.execute(select(User).where(User.email == req.email))
+    if existing.scalar_one_or_none():
         raise HTTPException(400, "Email already registered")
 
     user = User(
@@ -119,8 +120,8 @@ async def register(req: RegisterRequest, db: Session = Depends(get_db)):
         level=req.level,
     )
     db.add(user)
-    db.commit()
-    db.refresh(user)
+    await db.commit()
+    await db.refresh(user)
 
     return TokenOut(
         access_token=create_token(str(user.id)),
@@ -133,8 +134,9 @@ async def register(req: RegisterRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenOut)
-async def login(req: LoginRequest, db: Session = Depends(get_db)):
-    user = db.execute(select(User).where(User.email == req.email)).scalar_one_or_none()
+async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(User).where(User.email == req.email))
+    user = result.scalar_one_or_none()
     if not user or not verify_password(req.password, user.hashed_password):
         raise HTTPException(401, "Invalid email or password")
 
@@ -149,8 +151,9 @@ async def login(req: LoginRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/token")
-async def token(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    user = db.execute(select(User).where(User.email == form.username)).scalar_one_or_none()
+async def token(form: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(User).where(User.email == form.username))
+    user = result.scalar_one_or_none()
     if not user or not verify_password(form.password, user.hashed_password):
         raise HTTPException(401, "Invalid credentials")
     return {"access_token": create_token(str(user.id)), "token_type": "bearer"}
