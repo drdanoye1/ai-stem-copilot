@@ -4,8 +4,9 @@ AI Mathematics Copilot™ — FastAPI Backend
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from sqlalchemy import text
 from app.config import settings
-from app.database import create_tables
+from app.database import create_tables, engine
 from app.routers import auth, math
 
 app = FastAPI(
@@ -37,7 +38,11 @@ app.include_router(math.router, prefix=PREFIX)
 
 @app.on_event("startup")
 async def startup():
-    await create_tables()
+    try:
+        await create_tables()
+        print("✓ Database tables ready")
+    except Exception as e:
+        print(f"⚠ DB startup warning (app continues): {e}")
 
 
 @app.get("/")
@@ -48,3 +53,18 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
+
+
+@app.get("/db-test")
+async def db_test():
+    """Diagnose DB connection — remove before production."""
+    from app.config import settings
+    url = settings.DATABASE_URL
+    host_part = url.split("@")[-1] if "@" in url else url
+    scheme = url.split("://")[0] if "://" in url else "unknown"
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        return {"status": "connected", "scheme": scheme, "host": host_part}
+    except Exception as e:
+        return {"status": "error", "scheme": scheme, "host": host_part, "error": str(e)[:300]}
