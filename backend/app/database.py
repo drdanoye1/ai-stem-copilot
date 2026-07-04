@@ -21,11 +21,11 @@ elif _db_url.startswith("postgresql://"):
 _connect_args: dict = {}
 
 if "railway.internal" in _db_url or "rlwy.net" in _db_url:
-    # Railway (public proxy or private network) — plain connection, no SSL
-    # asyncpg with ssl=None (default) does not send SSLRequest; Railway Postgres
-    # does not support PostgreSQL-level SSL negotiation. Matches Promptivia's
-    # working configuration exactly.
-    _connect_args = {}
+    # asyncpg 0.29.0 changed default: creates implicit SSL ctx for TCP hosts
+    # and does NOT fall back when server sends 'N'. Must pass ssl=False
+    # explicitly to skip SSLRequest entirely. Railway Postgres does not
+    # support PostgreSQL-level SSL negotiation on either endpoint.
+    _connect_args = {"ssl": False}
 
 elif "neon.tech" in _db_url:
     _ssl_ctx = _ssl.create_default_context()
