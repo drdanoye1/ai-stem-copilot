@@ -17,14 +17,12 @@ elif _db_url.startswith("postgresql://"):
     _db_url = _db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 # already postgresql+asyncpg:// — leave as-is
 
-# SSL connect_args — Railway needs a permissive SSL ctx; Neon/Supabase need certs
+# SSL connect_args
 _connect_args: dict = {}
 
 if "railway.internal" in _db_url or "rlwy.net" in _db_url:
-    # asyncpg 0.29.0 changed default: creates implicit SSL ctx for TCP hosts
-    # and does NOT fall back when server sends 'N'. Must pass ssl=False
-    # explicitly to skip SSLRequest entirely. Railway Postgres does not
-    # support PostgreSQL-level SSL negotiation on either endpoint.
+    # asyncpg 0.29.0 no longer falls back from SSL when server sends 'N'.
+    # Must pass ssl=False explicitly to skip SSLRequest entirely.
     _connect_args = {"ssl": False}
 
 elif "neon.tech" in _db_url:
@@ -32,6 +30,7 @@ elif "neon.tech" in _db_url:
     _ssl_ctx.check_hostname = False
     _ssl_ctx.verify_mode = _ssl.CERT_NONE
     _connect_args = {"ssl": _ssl_ctx}
+
 elif "supabase.co" in _db_url or "pooler.supabase.com" in _db_url:
     _ssl_ctx = _ssl.create_default_context()
     _ssl_ctx.check_hostname = False
