@@ -17,12 +17,19 @@ elif _db_url.startswith("postgresql://"):
     _db_url = _db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 # already postgresql+asyncpg:// — leave as-is
 
-# SSL connect_args — Railway internal needs ssl=False; Neon/Supabase need a cert
+# SSL connect_args — Railway needs a permissive SSL ctx; Neon/Supabase need certs
 _connect_args: dict = {}
 
 if "railway.internal" in _db_url:
-    # Internal Railway network — no SSL, connect plain
-    _connect_args = {"ssl": False}
+    # Internal Railway private network — no SSL (match Promptivia's working pattern)
+    _connect_args = {}
+
+elif "rlwy.net" in _db_url:
+    # Railway public proxy — needs SSL but relaxed cert verification
+    _ssl_ctx = _ssl.create_default_context()
+    _ssl_ctx.check_hostname = False
+    _ssl_ctx.verify_mode = _ssl.CERT_NONE
+    _connect_args = {"ssl": _ssl_ctx}
 
 elif "neon.tech" in _db_url:
     _ssl_ctx = _ssl.create_default_context()
