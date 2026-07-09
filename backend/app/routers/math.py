@@ -1297,22 +1297,13 @@ async def scenario(
     img_model = req.image_model or "dall-e-3"
     async def gen_image(image_prompt: str) -> str:
         client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY, timeout=120.0)
-        # gpt-image-1 always returns b64_json; dall-e-2/3 support response_format param.
-        # We request b64_json for all models so the browser can render a data URI directly
-        # without hitting CORS / short-lived URL expiry issues.
+        # response_format param removed in newer OpenAI API — use URL responses (default).
         gen_kwargs: dict = {"model": img_model, "prompt": image_prompt, "size": "1024x1024", "n": 1}
         if img_model == "dall-e-3":
             gen_kwargs["quality"] = "standard"          # dall-e-3: standard | hd
-            gen_kwargs["response_format"] = "b64_json"
         elif img_model == "gpt-image-1":
             gen_kwargs["quality"] = "auto"              # gpt-image-1: low | medium | high | auto
-            # gpt-image-1 returns b64_json by default; response_format param not accepted
-        # dall-e-2: response_format param no longer accepted — returns URL by default
         resp = await client.images.generate(**gen_kwargs)  # type: ignore[arg-type]
-        b64 = resp.data[0].b64_json
-        if b64:
-            return f"data:image/png;base64,{b64}"
-        # URL response (dall-e-2 default)
         return resp.data[0].url or ""
 
     try:
@@ -1616,3 +1607,4 @@ async def list_subjects():
             {"key": "discrete_math", "label": "Discrete Mathematics",     "icon": "Network",    "color": "bg-orange-100 text-orange-700","topics": ["Logic", "Set Theory", "Combinatorics", "Graph Theory", "Number Theory", "Proofs", "Algorithms"]},
         ]
     }
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
