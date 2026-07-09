@@ -185,11 +185,26 @@ function chaosMetrics(r: number, x0: number) {
 
 // ─── Shared sub-components ────────────────────────────────────────────────────
 
-function InsightBox({ accent, children }: { accent: string; children: React.ReactNode }) {
+function ModelPanel({ accent, modelName, equation, state, stateColor, children }: {
+  accent: string; modelName: string; equation: string;
+  state: string; stateColor: string; children: React.ReactNode;
+}) {
   return (
-    <div className="rounded-xl px-4 py-3 text-xs leading-relaxed mt-4"
-      style={{ background: "rgba(0,0,0,0.22)", border: "1px solid rgba(255,255,255,0.06)", color: "#64748b" }}>
-      <strong style={{ color: "#94a3b8" }}>Model: </strong>{children}
+    <div className="rounded-xl mt-4 overflow-hidden text-xs"
+      style={{ background: "rgba(0,0,0,0.28)", border: "1px solid rgba(255,255,255,0.07)" }}>
+      <div className="flex items-center justify-between px-4 py-2.5"
+        style={{ background: `${accent}12`, borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+        <span className="font-semibold tracking-wide" style={{ color: accent }}>⚡ {modelName}</span>
+        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold"
+          style={{ background: `${stateColor}20`, color: stateColor, border: `1px solid ${stateColor}40` }}>
+          {state}
+        </span>
+      </div>
+      <div className="px-4 py-3">
+        <div className="font-mono text-[10px] px-3 py-2 rounded-lg mb-2.5 leading-relaxed"
+          style={{ background: "rgba(0,0,0,0.35)", color: "#64748b" }}>{equation}</div>
+        <div className="leading-relaxed" style={{ color: "#94a3b8" }}>{children}</div>
+      </div>
     </div>
   );
 }
@@ -994,10 +1009,20 @@ function TrafficTwinDemo() {
           <KPICard label="Avg Wait" value={`${avgWait}s`} sub="per intersection" color={ACC} />
           <KPICard label="Congestion" value={String(congestion)} sub={congestion > 65 ? "severe" : congestion > 40 ? "moderate" : "clear"} color={cColor} />
         </div>
-        <InsightBox accent={ACC}>
-          Throughput = 4800 x n(p), n(p) = 1/(1 + e^12(p-0.65)). At p = {(density/100).toFixed(2)}, efficiency ={" "}
-          <strong style={{ color: ACC }}>{(efficiency * 100).toFixed(0)}%</strong>. Congestion index = (1 - n) x 100.
-        </InsightBox>
+        <ModelPanel
+          accent={ACC}
+          modelName="Greenshields Traffic Flow Model"
+          equation="n(ρ) = 1/(1 + e^12(ρ−0.65))   ·   Q = 4800·n(ρ)  veh/hr   ·   ρ_critical ≈ 0.65"
+          state={congestion > 65 ? "Gridlock" : congestion > 40 ? "Congested" : "Free Flow"}
+          stateColor={congestion > 65 ? "#f43f5e" : congestion > 40 ? "#f59e0b" : "#10b981"}
+        >
+          At ρ = {density}%, sigmoid efficiency n(ρ) = <strong style={{ color: ACC }}>{(efficiency * 100).toFixed(0)}%</strong>,
+          delivering <strong style={{ color: ACC }}>{throughput.toLocaleString()}</strong> veh/hr (theoretical max: 4,800).
+          Avg intersection wait = <strong style={{ color: ACC }}>{avgWait}s</strong> for signal cycle {signal}s.{" "}
+          {congestion > 50
+            ? "Network has crossed ρ_critical ≈ 65% — small density increases now cause disproportionate throughput collapse (nonlinear regime)."
+            : "Operating below ρ_critical ≈ 65% — system is in the linear free-flow regime. Reducing density below 40% will not significantly improve throughput further."}
+        </ModelPanel>
       </div>
     </div>
   );
@@ -1078,10 +1103,21 @@ function PowerGridTwinDemo() {
           <KPICard label="CO2 Intensity" value={`${co2} g/kWh`} color="#94a3b8" />
           <KPICard label="Spot Price" value={`$${cost}/MWh`} color="#94a3b8" />
         </div>
-        <InsightBox accent={ACC}>
-          Df = (P_gen - P_load)/(2H*P_rated) x f0. H = 5s, P_rated = 1000 MW, f0 = 50 Hz.
-          Current Df = <strong style={{ color: ACC }}>{deltaF.toFixed(3)} Hz</strong>. Safe: |Df| &lt; 0.5 Hz.
-        </InsightBox>
+        <ModelPanel
+          accent={ACC}
+          modelName="Swing Equation — Grid Frequency Stability"
+          equation="Δf = (P_gen − P_load) / (2H·P_rated) · f₀   |   H=5s, f₀=50 Hz, P_rated=1000 MW"
+          state={blackoutRisk > 50 ? "Critical" : blackoutRisk > 20 ? "Warning" : "Stable"}
+          stateColor={blackoutRisk > 50 ? "#f43f5e" : blackoutRisk > 20 ? "#f59e0b" : "#10b981"}
+        >
+          P_gen = <strong style={{ color: ACC }}>{Math.round(totalGen)} MW</strong>, P_load = {load} MW.
+          Frequency deviation Δf = <strong style={{ color: Math.abs(deltaF) > 0.5 ? "#f43f5e" : ACC }}>{deltaF.toFixed(3)} Hz</strong>{" "}
+          → grid frequency = {freq.toFixed(2)} Hz.{" "}
+          {Math.abs(deltaF) > 0.5
+            ? "|Δf| exceeds 0.5 Hz safe band — automatic load-shedding or generator trip imminent to protect equipment."
+            : "Within ±0.5 Hz safe band — no protective relay action required."}{" "}
+          CO₂ intensity: <strong style={{ color: ACC }}>{co2} g/kWh</strong> ({renew}% renewable share reduces fossil dispatch).
+        </ModelPanel>
       </div>
     </div>
   );
@@ -1153,10 +1189,22 @@ function SupplyChainTwinDemo() {
           <KPICard label="Stockout Risk" value={`${stockoutRisk}%`} color={rColor} />
           <KPICard label="Bullwhip" value={`${bullwhip.toFixed(2)}x`} color={bColor} />
         </div>
-        <InsightBox accent={ACC}>
-          Bullwhip = 1 + 2L/T + 2(L/T)^2. At L={leadTime}d, T=5d: <strong style={{ color: ACC }}>{bullwhip.toFixed(2)}x</strong> variance amplification.
-          Stockout risk = 1 - Phi({sf.toFixed(2)}) = <strong style={{ color: rColor }}>{stockoutRisk}%</strong> (normal CDF).
-        </InsightBox>
+        <ModelPanel
+          accent={ACC}
+          modelName="Bullwhip Effect — Lee, Padmanabhan & Whang (1997)"
+          equation="BE = 1 + 2(L/T) + 2(L/T)²   |   SS = z·σ_d·√(L+T)   |   Stockout risk = 1−Φ(z)"
+          state={bullwhip > 3 ? "High Amplification" : bullwhip > 2 ? "Moderate" : "Controlled"}
+          stateColor={bullwhip > 3 ? "#f43f5e" : bullwhip > 2 ? "#f59e0b" : "#10b981"}
+        >
+          L = {leadTime}d, T = 5d → demand variance amplified{" "}
+          <strong style={{ color: ACC }}>{bullwhip.toFixed(2)}×</strong> upstream (orders are {bullwhip.toFixed(2)}× more volatile than actual demand).
+          Safety stock SS = {sf.toFixed(2)}·σ = <strong style={{ color: ACC }}>{safetyStock.toLocaleString()} units</strong>;
+          total inventory = <strong style={{ color: ACC }}>{totalInventory.toLocaleString()} units</strong>.
+          Stockout risk 1−Φ({sf.toFixed(2)}) = <strong style={{ color: rColor }}>{stockoutRisk}%</strong>.{" "}
+          {stockoutRisk > 15
+            ? "Risk exceeds 15% target — increase safety factor z or shorten lead time to reduce SS requirement."
+            : "Service level adequate. The dominant cost driver is cycle stock, not safety stock."}
+        </ModelPanel>
       </div>
     </div>
   );
@@ -1197,7 +1245,7 @@ function MechanicalTwinDemo() {
     return () => clearInterval(id);
   }, [mass, springK, dampingC]);
 
-  const { freqHz, zeta, settlingTime, type } = mechanicalMetrics(mass, springK, dampingC);
+  const { omega0, freqHz, zeta, omegaD, settlingTime, type } = mechanicalMetrics(mass, springK, dampingC);
   const typeColor = type === "overdamped" ? "#94a3b8" : type === "critical" ? "#f59e0b" : ACC;
   const massPos = bars[10] ?? 50;
 
@@ -1241,11 +1289,21 @@ function MechanicalTwinDemo() {
           <KPICard label="Damping Ratio z" value={zeta.toFixed(3)} color={typeColor} sub={type} />
           <KPICard label="Settling Time" value={settlingTime < 100 ? `${settlingTime.toFixed(1)}s` : "---"} color="#94a3b8" />
         </div>
-        <InsightBox accent={ACC}>
-          w0 = sqrt(k/m) = <strong style={{ color: ACC }}>{(freqHz*2*Math.PI).toFixed(2)} rad/s</strong>.{" "}
-          z = c/(2*sqrt(km)) = <strong style={{ color: typeColor }}>{zeta.toFixed(3)}</strong>.{" "}
-          x(t) = e^(-z*w0*t)*cos(wd*t). Response: <strong style={{ color: typeColor }}>{type}</strong>.
-        </InsightBox>
+        <ModelPanel
+          accent={ACC}
+          modelName="Spring-Mass-Damper (2nd-Order Linear ODE)"
+          equation="mẍ + cẋ + kx = 0   |   ζ = c/(2√km)   |   ω₀ = √(k/m)   |   x(t) = e^(−ζω₀t)·cos(ωd·t)"
+          state={type === "overdamped" ? "Overdamped (ζ>1)" : type === "critical" ? "Critically Damped (ζ=1)" : "Underdamped (ζ<1)"}
+          stateColor={type === "underdamped" ? ACC : type === "critical" ? "#f59e0b" : "#94a3b8"}
+        >
+          ω₀ = √({springK}/{mass}) = <strong style={{ color: ACC }}>{omega0.toFixed(2)} rad/s</strong> ({freqHz.toFixed(2)} Hz),
+          ζ = <strong style={{ color: typeColor }}>{zeta.toFixed(3)}</strong>.{" "}
+          {type === "underdamped"
+            ? `Underdamped: system oscillates with decaying amplitude at ωd = ${omegaD.toFixed(2)} rad/s. Each overshoot is smaller by factor e^(−2πζ/√(1−ζ²)). Settling time ≈ ${settlingTime.toFixed(1)}s.`
+            : type === "critical"
+            ? `Critically damped (ζ=1): fastest return to equilibrium without oscillation. Settling time ≈ ${settlingTime.toFixed(1)}s — optimal for servo drives and precision instruments.`
+            : `Overdamped (ζ>${zeta.toFixed(2)}): two distinct real roots; response is sluggish with no overshoot. ${settlingTime < 100 ? 'Settling time ≈ '+settlingTime.toFixed(1)+'s.' : 'Very slow settling (>100s).'}`}
+        </ModelPanel>
       </div>
     </div>
   );
@@ -1321,11 +1379,22 @@ function ElectricalTwinDemo() {
           <KPICard label="Q Factor" value={Q.toFixed(2)} color={Q > 10 ? "#10b981" : Q > 3 ? ACC : "#f43f5e"} sub={Q > 10 ? "sharp" : Q < 1 ? "overdamped" : "moderate"} />
           <KPICard label="Bandwidth" value={bwStr} color="#94a3b8" />
         </div>
-        <InsightBox accent={ACC}>
-          w0 = 1/sqrt(LC) = <strong style={{ color: ACC }}>{freqStr}</strong>.{" "}
-          Q = (1/R)*sqrt(L/C) = <strong style={{ color: ACC }}>{Q.toFixed(2)}</strong>. Higher Q means sharper resonance.
-          |H(jw)| = 1/sqrt[(1-(w/w0)^2)^2 + (w/Qw0)^2].
-        </InsightBox>
+        <ModelPanel
+          accent={ACC}
+          modelName="Series RLC Band-Pass Resonator"
+          equation="ω₀ = 1/√(LC)   |   Q = (1/R)√(L/C)   |   BW = ω₀/Q   |   |H(jω)| = 1/√[(1−(ω/ω₀)²)²+(ω/Qω₀)²]"
+          state={Q > 10 ? "High-Q (Sharp)" : Q > 3 ? "Moderate-Q" : Q > 1 ? "Low-Q" : "Overdamped"}
+          stateColor={Q > 10 ? "#10b981" : Q > 3 ? ACC : Q > 1 ? "#f59e0b" : "#94a3b8"}
+        >
+          Resonant frequency f₀ = <strong style={{ color: ACC }}>{freqStr}</strong>,
+          Q = <strong style={{ color: Q > 10 ? "#10b981" : Q > 3 ? ACC : "#f59e0b" }}>{Q.toFixed(2)}</strong>,
+          bandwidth = <strong style={{ color: ACC }}>{bwStr}</strong>.{" "}
+          {Q > 10
+            ? `High Q — very sharp frequency selectivity; circuit strongly amplifies signals within ±${(BW_Hz/2).toFixed(1)} Hz of resonance and rejects all others. Useful for narrow-band RF filters.`
+            : Q > 3
+            ? `Moderate Q — reasonable selectivity with ${bwStr} passband. Energy stored/dissipated ratio = Q per cycle. Used in audio equalizers and IF filters.`
+            : `Low Q — high damping; broad flat response with poor frequency discrimination. Increase L or decrease R to sharpen resonance peak.`}
+        </ModelPanel>
       </div>
     </div>
   );
@@ -1390,11 +1459,20 @@ function ElectronicTwinDemo() {
           <KPICard label="Region" value={region} color={regColor} sub={`Vdsat=${Vdsat.toFixed(1)}V`} />
           <KPICard label="Transconductance gm" value={`${gm_mS.toFixed(2)} mS`} color="#94a3b8" />
         </div>
-        <InsightBox accent={ACC}>
-          Triode (Vds &lt; Vgs-Vt): Id = k[(Vgs-Vt)Vds - Vds^2/2].{" "}
-          Sat (Vds &gt;= Vgs-Vt): Id = (k/2)(Vgs-Vt)^2 = <strong style={{ color: ACC }}>{((0.002/2)*Math.pow(Math.max(0,Vgs-1.5),2)*1000).toFixed(2)} mA</strong>.
-          Region: <strong style={{ color: regColor }}>{region}</strong>.
-        </InsightBox>
+        <ModelPanel
+          accent={ACC}
+          modelName="NMOS MOSFET Square-Law Model (Shichman-Hodges)"
+          equation="Triode: I_D = k[(V_GS−V_T)V_DS − V_DS²/2]   |   Sat: I_D = (k/2)(V_GS−V_T)²   |  k=2mA/V², V_T=1.5V"
+          state={region === "cutoff" ? "Cutoff (OFF)" : region === "triode" ? "Triode (Linear)" : "Saturation (Active)"}
+          stateColor={region === "cutoff" ? "#64748b" : region === "saturation" ? "#10b981" : ACC}
+        >
+          V_GS = {Vgs.toFixed(1)} V, V_T = 1.5 V → V_GS − V_T = <strong style={{ color: ACC }}>{Math.max(0, Vgs - 1.5).toFixed(1)} V</strong>.{" "}
+          {region === "cutoff"
+            ? "Gate below threshold — channel is pinched off, I_D = 0. Device acts as an open circuit (switch OFF). No current flows regardless of V_DS."
+            : region === "triode"
+            ? `Triode region: V_DS (${Vds.toFixed(1)}V) < V_DSAT (${Vdsat.toFixed(1)}V) — device is a voltage-controlled resistor. I_D = ${Id_mA.toFixed(2)} mA, g_m = ${gm_mS.toFixed(2)} mS. Used in analog switches and logic.`
+            : `Saturation: V_DS (${Vds.toFixed(1)}V) ≥ V_DSAT (${Vdsat.toFixed(1)}V) — channel is pinched off at drain; I_D depends only on V_GS. I_D = ${Id_mA.toFixed(2)} mA, g_m = ${gm_mS.toFixed(2)} mS. Ideal for amplification.`}
+        </ModelPanel>
       </div>
     </div>
   );
@@ -1459,11 +1537,22 @@ function ChemicalTwinDemo() {
           <KPICard label="Rate Const k" value={k.toExponential(2)} sub="s-1" color={ACC} />
           <KPICard label="Outlet Conc Ca" value={`${Ca.toFixed(3)} mol/L`} color="#94a3b8" />
         </div>
-        <InsightBox accent={ACC}>
-          Arrhenius: k = k0*exp(-Ea/RT). CSTR conversion: X = k*tau/(1+k*tau).
-          At {temp}K: k = <strong style={{ color: ACC }}>{k.toExponential(3)} s-1</strong>,{" "}
-          X = <strong style={{ color: convColor }}>{X.toFixed(1)}%</strong>.
-        </InsightBox>
+        <ModelPanel
+          accent={ACC}
+          modelName="CSTR — Arrhenius Kinetics (1st-Order Irreversible)"
+          equation="k = 10⁸ · e^(−Ea/RT)  [Ea=72 kJ/mol, R=8.314 J/mol·K]   |   X = kτ/(1+kτ)"
+          state={X > 80 ? "High Conversion" : X > 40 ? "Moderate" : "Low Conversion"}
+          stateColor={X > 80 ? "#10b981" : X > 40 ? ACC : "#f59e0b"}
+        >
+          At T = {temp}K ({temp - 273}°C), Arrhenius gives k = <strong style={{ color: ACC }}>{k.toExponential(2)} s⁻¹</strong>.
+          Residence time τ = {tau} min → X = kτ/(1+kτ) = <strong style={{ color: convColor }}>{X.toFixed(1)}%</strong>;
+          outlet concentration C_A = <strong style={{ color: ACC }}>{Ca.toFixed(3)} mol/L</strong>.{" "}
+          {X > 80
+            ? "High-conversion regime: X approaches 100% asymptotically — further τ increases yield diminishing returns. Reactor cost grows faster than conversion gain."
+            : X < 30
+            ? "Low conversion — rate constant too small at this temperature. Every +10K approximately doubles k (Arrhenius rule of thumb for Ea ≈ 72 kJ/mol)."
+            : "Moderate conversion — both T and τ are effective control levers. Temperature has exponential impact via Arrhenius; τ has diminishing-return (hyperbolic) impact."}
+        </ModelPanel>
       </div>
     </div>
   );
@@ -1530,11 +1619,23 @@ function CivilTwinDemo() {
           <KPICard label="Bending Stress" value={`${sigma.toFixed(1)} MPa`} color={sigma > 200 ? "#f43f5e" : "#94a3b8"} />
           <KPICard label="Safety Factor" value={SF.toFixed(2)} color={sfColor} sub={SF < 1.5 ? "check design" : "ok"} />
         </div>
-        <InsightBox accent={ACC}>
-          d_max = PL^3/(48EI) = <strong style={{ color: ACC }}>{deflMM.toFixed(2)} mm</strong> (L/{L_d}).{" "}
-          sigma = PL/(4Z) = <strong style={{ color: sigma > 200 ? "#f43f5e" : ACC }}>{sigma.toFixed(1)} MPa</strong>.{" "}
-          SF = sigma_y/sigma = 250/{sigma.toFixed(1)} = <strong style={{ color: sfColor }}>{SF.toFixed(2)}</strong>.
-        </InsightBox>
+        <ModelPanel
+          accent={ACC}
+          modelName="Euler-Bernoulli Beam Theory (Simply Supported, Centre Load)"
+          equation="δ = PL³/(48EI)   |   σ = PL/(4Z)   |   SF = σ_yield/σ   |  E=200 GPa, σ_y=250 MPa, I=8.33×10⁻⁵ m⁴"
+          state={SF > 3 ? "Safe" : SF > 1.5 ? "Marginal" : "Overstressed"}
+          stateColor={SF > 3 ? "#10b981" : SF > 1.5 ? "#f59e0b" : "#f43f5e"}
+        >
+          P = {loadKN} kN on L = {spanM} m span. Mid-span deflection δ = <strong style={{ color: ACC }}>{deflMM.toFixed(1)} mm</strong>{" "}
+          (L/{L_d} ratio; serviceability limit is L/360).
+          Max bending stress σ = <strong style={{ color: sigma > 200 ? "#f43f5e" : ACC }}>{sigma.toFixed(1)} MPa</strong>.
+          Safety factor SF = 250/{sigma.toFixed(1)} = <strong style={{ color: sfColor }}>{SF.toFixed(2)}</strong>.{" "}
+          {SF < 1.5
+            ? "DANGER: SF < 1.5 — section is structurally inadequate. Increase moment of inertia I (deeper section) or reduce load/span."
+            : L_d < 360
+            ? `Strength adequate (SF ${SF.toFixed(1)}) but deflection L/${L_d} exceeds L/360 serviceability limit — consider a stiffer section to control long-term deformation.`
+            : `Both strength check (SF ${SF.toFixed(1)}) and serviceability check (L/${L_d} < L/360) pass. Structure is adequate under this loading.`}
+        </ModelPanel>
       </div>
     </div>
   );
@@ -1599,11 +1700,23 @@ function QuantumTwinDemo() {
           <KPICard label="Coherence" value={coherence.toFixed(3)} color="#94a3b8" />
           <KPICard label="Bloch z" value={bz.toFixed(3)} color={bz > 0 ? "#10b981" : "#f59e0b"} />
         </div>
-        <InsightBox accent={ACC}>
-          |psi&gt; = cos(t/2)|0&gt; + exp(i*phi)sin(t/2)|1&gt;. Bloch vector: ({bx.toFixed(2)}, {by.toFixed(2)}, {bz.toFixed(2)}).{" "}
-          P(|0&gt;) = cos^2(t/2) = <strong style={{ color: ACC }}>{(p0*100).toFixed(1)}%</strong>.{" "}
-          Coherence = |sin(t)|/2 = <strong style={{ color: ACC }}>{coherence.toFixed(3)}</strong>.
-        </InsightBox>
+        <ModelPanel
+          accent={ACC}
+          modelName="Single-Qubit Pure State (Bloch Sphere)"
+          equation="|ψ⟩ = cos(θ/2)|0⟩ + e^(iφ)·sin(θ/2)|1⟩   |   P(|0⟩)=cos²(θ/2)   |   coherence=|sinθ|/2"
+          state={p0 > 0.95 ? "|0⟩ Dominant" : p0 < 0.05 ? "|1⟩ Dominant" : Math.abs(p0 - 0.5) < 0.05 ? "Max Superposition" : "Superposition"}
+          stateColor={Math.abs(p0 - 0.5) < 0.1 ? "#10b981" : p0 > 0.95 || p0 < 0.05 ? "#64748b" : ACC}
+        >
+          θ = {theta}°, φ = {phi}°. Bloch vector = ({bx.toFixed(2)}, {by.toFixed(2)}, {bz.toFixed(2)}).
+          Measurement: P(|0⟩) = <strong style={{ color: ACC }}>{(p0 * 100).toFixed(1)}%</strong>,
+          P(|1⟩) = <strong style={{ color: "#f43f5e" }}>{(p1 * 100).toFixed(1)}%</strong>.
+          Off-diagonal coherence |ρ₀₁| = <strong style={{ color: ACC }}>{coherence.toFixed(3)}</strong>.{" "}
+          {Math.abs(p0 - 0.5) < 0.05
+            ? "At θ ≈ 90°: maximum superposition state — equivalent to a Hadamard-transformed |0⟩. Coherence is maximised; a single measurement outcome is maximally uncertain."
+            : p0 > 0.95
+            ? "θ ≈ 0°: qubit collapsed near |0⟩ ground state. Almost deterministic measurement outcome; no quantum advantage from superposition."
+            : `φ = ${phi}° rotates the Bloch vector in the equatorial plane — this phase difference between |0⟩ and |1⟩ is only observable via interference experiments, not direct measurement.`}
+        </ModelPanel>
       </div>
     </div>
   );
@@ -1669,11 +1782,18 @@ function BiotechTwinDemo() {
           <KPICard label="Residual S*" value={`${S_star.toFixed(3)} g/L`} color="#94a3b8" />
           <KPICard label="Productivity D*X" value={`${productivity.toFixed(3)} g/L/h`} color={ACC} />
         </div>
-        <InsightBox accent={ACC}>
-          Monod: mu = mu_max*S/(Ks+S). S* = Ks*D/(mu_max-D) = <strong style={{ color: ACC }}>{S_star.toFixed(3)} g/L</strong>,{" "}
-          X* = Y(S0-S*) = <strong style={{ color: wColor }}>{X.toFixed(2)} g/L</strong>.
-          Washout at D &gt;= mu_max = 0.8/h.
-        </InsightBox>
+        <ModelPanel
+          accent={ACC}
+          modelName="Monod Chemostat Kinetics (Continuous Bioreactor)"
+          equation="μ(S) = μ_max·S/(K_s+S)   |   S* = K_s·D/(μ_max−D)   |   X* = Y·(S₀−S*)   |  μ_max=0.8/h, K_s=0.2 g/L"
+          state={washout ? "Washout (D≥μ_max)" : D > 0.64 ? "Near Washout" : "Stable Culture"}
+          stateColor={washout ? "#f43f5e" : D > 0.64 ? "#f59e0b" : "#10b981"}
+        >
+          {washout
+            ? <span>D = {D.toFixed(2)} /h ≥ μ_max = 0.8 /h — <strong style={{ color: "#f43f5e" }}>WASHOUT</strong>: cells removed faster than they divide. Biomass → 0 g/L. Reduce D below μ_max to restore culture.</span>
+            : <span>D = {D.toFixed(2)} /h &lt; μ_max = 0.8 /h. Steady state: S* = <strong style={{ color: ACC }}>{S_star.toFixed(3)} g/L</strong>, X* = <strong style={{ color: ACC }}>{X.toFixed(2)} g/L</strong>, productivity D·X* = <strong style={{ color: ACC }}>{productivity.toFixed(3)} g/L/h</strong>.{" "}
+              {D > 0.5 ? " Near critical D — productivity near peak but washout risk is high. The Monod curve is steep in this region." : " Stable region; increasing D raises productivity proportionally until D approaches μ_max."}</span>}
+        </ModelPanel>
       </div>
     </div>
   );
@@ -1734,12 +1854,22 @@ function NanotechTwinDemo() {
           style={{ background: color, color: lambdaNm < 500 ? "#fff" : "#000" }}>
           {lambdaNm.toFixed(0)} nm emission
         </div>
-        <InsightBox accent={ACC}>
-          Brus: Eg(r) = Eg_bulk + hbar^2*pi^2/(2*m_eff*r^2).
-          At r={rNm.toFixed(1)}nm: dE_conf = <strong style={{ color: ACC }}>{confinement_eV.toFixed(3)} eV</strong>,
-          Eg = <strong style={{ color: ACC }}>{Eg_eV.toFixed(3)} eV</strong>,
-          lambda = <strong style={{ color }}>{lambdaNm.toFixed(0)} nm</strong>. Smaller dots shift emission blue.
-        </InsightBox>
+        <ModelPanel
+          accent={ACC}
+          modelName="Brus Equation — Quantum Confinement (CdSe Quantum Dot)"
+          equation="E_g(r) = E_g,bulk + ℏ²π²/(2m*r²)   |   λ_em = hc/E_g   |  E_g,bulk=1.74 eV, m*=0.13mₑ"
+          state={lambdaNm < 450 ? "UV/Violet" : lambdaNm < 500 ? "Blue" : lambdaNm < 560 ? "Green" : lambdaNm < 625 ? "Yellow-Orange" : "Red/NIR"}
+          stateColor={color}
+        >
+          r = {rNm.toFixed(1)} nm → quantum confinement energy ΔE = <strong style={{ color: ACC }}>{confinement_eV.toFixed(3)} eV</strong>.
+          Band gap E_g = 1.74 + {confinement_eV.toFixed(3)} = <strong style={{ color: ACC }}>{Eg_eV.toFixed(3)} eV</strong>.
+          Emission λ = hc/E_g = <strong style={{ color }}>{Math.round(lambdaNm)} nm</strong>.{" "}
+          {rNm < 2
+            ? "Very small dot (r<2nm) — strong quantum confinement blueshifts emission deep into violet/UV. High surface-to-volume ratio increases non-radiative recombination; quantum yield drops."
+            : rNm > 6
+            ? "Large dot — weak confinement; emission approaches bulk CdSe bandgap (1.74 eV, ~713 nm). Size distribution control is easier to achieve at this scale."
+            : "Mid-range size — emission is continuously tunable across the visible spectrum by adjusting r. Exploited in QLED displays, solar concentrators, and fluorescence bio-imaging."}
+        </ModelPanel>
       </div>
     </div>
   );
@@ -1806,11 +1936,23 @@ function HealthTwinDemo() {
           <KPICard label="AUC" value={`${AUC.toFixed(1)} mg*h/L`} color={ACC} />
           <KPICard label="Time above MIC" value={`${tMIC.toFixed(1)} h`} color="#94a3b8" />
         </div>
-        <InsightBox accent={ACC}>
-          C(t) = (F*D/Vd)*exp(-kel*t). kel = 0.693/t(1/2) = <strong style={{ color: ACC }}>{(0.693/halfLife).toFixed(3)} /h</strong>.{" "}
-          Cmax = F*D/Vd = 0.8*{dose}/35 = <strong style={{ color: safeColor }}>{Cmax.toFixed(2)} mg/L</strong>.{" "}
-          AUC = Cmax/kel = <strong style={{ color: ACC }}>{AUC.toFixed(1)} mg*h/L</strong>.
-        </InsightBox>
+        <ModelPanel
+          accent={ACC}
+          modelName="One-Compartment Oral Pharmacokinetic Model"
+          equation="C(t) = (F·D/V_d)·e^(−k_el·t)   |   k_el = ln2/t½   |   AUC₀₋∞ = C_max/k_el   |  V_d=35L, F=80%"
+          state={Cmax > MIC * 4 ? "Therapeutic" : Cmax > MIC ? "Borderline" : "Sub-therapeutic"}
+          stateColor={Cmax > MIC * 4 ? "#10b981" : Cmax > MIC ? "#f59e0b" : "#f43f5e"}
+        >
+          Dose {dose} mg, F=80%, V_d=35L → C_max = F·D/V_d = <strong style={{ color: safeColor }}>{Cmax.toFixed(2)} mg/L</strong>.
+          k_el = 0.693/{halfLife}h = <strong style={{ color: ACC }}>{(0.693/halfLife).toFixed(3)} h⁻¹</strong>.
+          AUC₀₋∞ = <strong style={{ color: ACC }}>{AUC.toFixed(1)} mg·h/L</strong>.
+          Time above MIC (0.5 mg/L) = <strong style={{ color: ACC }}>{tMIC.toFixed(1)} h</strong>.{" "}
+          {Cmax > MIC * 4
+            ? "C_max well above MIC — good drug exposure. For concentration-dependent antibiotics the C_max/MIC ratio (currently " + (Cmax/MIC).toFixed(1) + "×) drives bactericidal efficacy."
+            : Cmax > MIC
+            ? `Marginally above MIC (${(Cmax/MIC).toFixed(1)}× MIC). Consider increasing dose or frequency; target C_max/MIC ≥ 4× for robust bactericidal effect.`
+            : "C_max below MIC (0.5 mg/L) — plasma concentration is insufficient for antibacterial effect. Increase dose, reduce volume of distribution, or improve bioavailability."}
+        </ModelPanel>
       </div>
     </div>
   );
@@ -1843,7 +1985,7 @@ function AerospaceTwinDemo() {
     return () => clearInterval(id);
   }, [alt, ecc]);
 
-  const { v_circ, T_min, hp, ha } = aerospaceMetrics(alt, ecc);
+  const { v_circ, T_min, hp, ha, a } = aerospaceMetrics(alt, ecc);
   const T_str = T_min >= 60 ? `${(T_min/60).toFixed(2)} hr` : `${T_min.toFixed(1)} min`;
 
   useEffect(() => {
@@ -1881,11 +2023,25 @@ function AerospaceTwinDemo() {
           <KPICard label="Periapsis hp" value={`${hp.toFixed(0)} km`} color="#94a3b8" />
           <KPICard label="Apoapsis ha" value={`${ha.toFixed(0)} km`} color="#94a3b8" />
         </div>
-        <InsightBox accent={ACC}>
-          Kepler III: T = 2*pi*sqrt(a^3/GM). v = sqrt(GM/a) = <strong style={{ color: ACC }}>{v_circ.toFixed(2)} km/s</strong>.{" "}
-          T = <strong style={{ color: ACC }}>{T_str}</strong>. Altitude: {hp.toFixed(0)} km (periapsis) to {ha.toFixed(0)} km (apoapsis).
-          r(nu) = a*(1-e^2)/(1+e*cos(nu)).
-        </InsightBox>
+        <ModelPanel
+          accent={ACC}
+          modelName="Keplerian Orbital Mechanics (Two-Body Problem)"
+          equation="T = 2π√(a³/GM)   |   v_circ = √(GM/a)   |   r(ν) = a(1−e²)/(1+e·cosν)   |  GM=3.986×10¹⁴ m³/s²"
+          state={ecc > 0.5 ? "Highly Elliptical" : ecc > 0.1 ? "Elliptical" : ecc < 0.01 ? "Circular" : "Near-Circular"}
+          stateColor={ecc > 0.5 ? "#f59e0b" : ecc > 0.1 ? ACC : "#10b981"}
+        >
+          Semi-major axis a = {Math.round(a / 1000)} km. Period T = <strong style={{ color: ACC }}>{T_str}</strong>.
+          Circular velocity v = <strong style={{ color: ACC }}>{v_circ.toFixed(2)} km/s</strong>.
+          With e = {ecc.toFixed(2)}: periapsis h_p = <strong style={{ color: ACC }}>{Math.round(hp)} km</strong>,
+          apoapsis h_a = <strong style={{ color: ACC }}>{Math.round(ha)} km</strong>.{" "}
+          {alt < 300
+            ? "Below 300 km — atmospheric drag is significant; orbit will decay within days to weeks without propulsion. ISS requires regular reboosts."
+            : Math.abs(alt - 35786) < 500 && ecc < 0.05
+            ? "Geostationary orbit (GEO): T ≈ 24hr matches Earth rotation — satellite appears stationary. Used for communications and weather satellites."
+            : alt < 2000
+            ? `Low Earth Orbit (LEO): short period (${T_str}), low signal latency (~20ms), higher drag. ISS orbits at ~410km.`
+            : `Medium/High orbit: low drag, long period. Vis-viva equation: v² = GM(2/r − 1/a) relates speed to radius at any orbital point.`}
+        </ModelPanel>
       </div>
     </div>
   );
@@ -1953,11 +2109,23 @@ function DefenseTwinDemo() {
           <KPICard label="Max Altitude" value={`${hMax_km.toFixed(2)} km`} color={ACC} />
           <KPICard label="Time of Flight" value={`${tof_s.toFixed(1)} s`} color="#94a3b8" />
         </div>
-        <InsightBox accent={ACC}>
-          R = v0^2*sin(2*theta)/g * 0.75 = <strong style={{ color: ACC }}>{range_km.toFixed(2)} km</strong>.{" "}
-          H_max = v0^2*sin^2(theta)/(2g) * 0.85 = <strong style={{ color: ACC }}>{hMax_km.toFixed(2)} km</strong>.{" "}
-          Optimal range at theta=45 deg. Drag factor reduces range ~25%.
-        </InsightBox>
+        <ModelPanel
+          accent={ACC}
+          modelName="Modified Projectile Trajectory (Drag-Corrected Ballistic)"
+          equation="R = 0.75·v₀²sin2θ/g   |   h_max = 0.85·v₀²sin²θ/2g   |   ToF = 0.90·2v₀sinθ/g"
+          state={Math.abs(angle - 45) <= 3 ? "Optimal Angle" : angle > 60 ? "High-Arc (Mortar)" : "Low-Arc (Direct Fire)"}
+          stateColor={Math.abs(angle - 45) <= 3 ? "#10b981" : "#f59e0b"}
+        >
+          v₀ = {v0} m/s, θ = {angle}°. Drag correction: range −25%, apex −15%, ToF −10%.
+          Range R = <strong style={{ color: ACC }}>{range_km.toFixed(2)} km</strong>,
+          max altitude h = <strong style={{ color: ACC }}>{hMax_km.toFixed(2)} km</strong>,
+          time-of-flight = <strong style={{ color: ACC }}>{tof_s.toFixed(1)} s</strong>.{" "}
+          {Math.abs(angle - 45) <= 3
+            ? "θ ≈ 45° achieves maximum range (sin2θ = 1 in vacuum; optimal angle shifts slightly lower to ~43° with aerodynamic drag)."
+            : angle > 60
+            ? "High-angle mortar trajectory: steep descent angle allows engagement over obstacles or into defiladed positions at short range."
+            : "Low-angle direct fire: flat trajectory reduces time-of-flight, limiting wind drift and increasing hit probability at medium range."}
+        </ModelPanel>
       </div>
     </div>
   );
@@ -2025,10 +2193,21 @@ function MathematicsTwinDemo() {
           <KPICard label="Lyapunov" value={lyapunov.toFixed(3)} color={lyaColor} sub={chaos ? "lambda>0: chaos" : "lambda<0: stable"} />
           <KPICard label="Period" value={period === 0 ? "inf" : String(period)} color="#94a3b8" sub={chaos ? "aperiodic" : undefined} />
         </div>
-        <InsightBox accent={ACC}>
-          x_(n+1) = r*x_n*(1-x_n). Lyapunov: lambda = (1/N)*sum(ln|r-2r*x_n|) = <strong style={{ color: lyaColor }}>{lyapunov.toFixed(3)}</strong>.{" "}
-          lambda &gt; 0 means chaos. Try r~3.57 for period-doubling cascade.
-        </InsightBox>
+        <ModelPanel
+          accent={ACC}
+          modelName="Logistic Map — Discrete Nonlinear Dynamical System"
+          equation="x_{n+1} = r·x_n·(1−x_n)   |   λ = (1/N)·Σ ln|r−2rx_n|   |   λ>0 → chaos   |   r_chaos ≈ 3.57"
+          state={chaos ? "Chaotic" : period === 1 ? "Fixed Point" : period > 0 ? `Period-${period}` : "Converging"}
+          stateColor={chaos ? "#f43f5e" : period > 2 ? "#f59e0b" : "#10b981"}
+        >
+          r = {r.toFixed(3)}, x₀ = {x0.toFixed(2)}.
+          Lyapunov exponent λ = <strong style={{ color: lyaColor }}>{lyapunov.toFixed(4)}</strong>.{" "}
+          {chaos
+            ? `λ > 0 — chaotic regime. Nearby trajectories diverge exponentially at rate e^(λt) per iteration (butterfly effect). The map reached chaos via an infinite period-doubling cascade above r ≈ 3.57; the ratio of successive bifurcation widths converges to the Feigenbaum constant δ ≈ 4.669.`
+            : period > 0
+            ? "λ < 0 — system converges to a period-" + period + " orbit. " + (r < 3 ? "r < 3: single stable fixed point x* = (r−1)/r = " + ((r-1)/r).toFixed(3) + "." : "r > 3: period-doubling has produced a period-" + period + " attractor.") + " Negative λ quantifies the exponential convergence rate."
+            : "System is at the stability boundary (λ ≈ 0) — transition between ordered and chaotic dynamics."}
+        </ModelPanel>
       </div>
     </div>
   );
