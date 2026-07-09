@@ -68,7 +68,6 @@ const CURRICULA = [
   { value: "gcse",       label: "GCSE"       },
 ];
 const IMAGE_MODELS = [
-  { value: "dall-e-2",     label: "DALL-E 2 (Standard)"  },
   { value: "dall-e-3",     label: "DALL-E 3 (Premium)"   },
   { value: "gpt-image-1",  label: "GPT-Image-1 (Latest)" },
 ];
@@ -191,7 +190,7 @@ export default function ScenarioPage() {
   const [level,      setLevel]      = useState(params.get("level")      ?? "high_school");
   const [curriculum, setCurriculum] = useState(params.get("curriculum") ?? "general");
   const { model, setModel } = useModel();
-  const [imageModel,  setImageModel]  = useState("dall-e-2");
+  const [imageModel,  setImageModel]  = useState("dall-e-3");
   const [loading,    setLoading]    = useState(false);
   const [result,     setResult]     = useState<ScenarioResponse | null>(null);
   const [error,      setError]      = useState<string | null>(null);
@@ -273,7 +272,7 @@ export default function ScenarioPage() {
             <strong style={{ color: "#f97316" }}>
               {IMAGE_MODELS.find(m => m.value === imageModel)?.label ?? imageModel}
             </strong>.
-            {imageModel === "dall-e-3" && " Requires OpenAI API Tier 1 ($5+ spend)."}
+            
             {" "}Each generation uses additional AI credits.
           </p>
         </div>

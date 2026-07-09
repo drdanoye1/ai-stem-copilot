@@ -678,7 +678,7 @@ class ScenarioRequest(BaseModel):
     level: str = "high_school"
     curriculum: str = "general"
     model_name: str = "gpt-4o"
-    image_model: str = "dall-e-2"   # dall-e-2 | dall-e-3 | gpt-image-1
+    image_model: str = "dall-e-3"   # dall-e-2 | dall-e-3 | gpt-image-1
 
 
 SCENARIO_PROMPT = """You are an expert educational prompt engineer specialising in DALL-E 3 image generation.
@@ -1294,7 +1294,7 @@ async def scenario(
         raise HTTPException(500, f"Failed to generate image prompts: {e}")
 
     # Step 2 — Generate both images in parallel
-    img_model = req.image_model or "dall-e-2"
+    img_model = req.image_model or "dall-e-3"
     async def gen_image(image_prompt: str) -> str:
         client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY, timeout=120.0)
         # gpt-image-1 always returns b64_json; dall-e-2/3 support response_format param.
