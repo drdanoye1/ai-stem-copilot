@@ -382,7 +382,7 @@ export default function MentorPage() {
   // ── Active session ──────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col h-full max-w-3xl mx-auto p-6 gap-4">
+    <div className="flex flex-col h-full max-w-3xl mx-auto p-3 sm:p-6 gap-4">
 
       {/* Session header */}
       <div className="flex items-center gap-3 flex-shrink-0">
@@ -486,5 +486,3 @@ export default function MentorPage() {
         </button>
       </form>
     </div>
-  );
-}

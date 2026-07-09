@@ -133,7 +133,7 @@ export function ModelSelector({ value, onChange, compact = false }: ModelSelecto
 
       {open && (
         <div
-          className="absolute right-0 top-full mt-2 rounded-2xl overflow-hidden z-50 w-64"
+          className="absolute right-0 top-full mt-2 rounded-2xl overflow-hidden z-50 w-64 max-w-[calc(100vw-2rem)]"
           style={{
             background: "#0f172a",
             border: "1px solid rgba(255,255,255,0.10)",
@@ -149,5 +149,4 @@ export function ModelSelector({ value, onChange, compact = false }: ModelSelecto
           {PROVIDER_ORDER.map(provider => {
             const group = MODELS.filter(m => m.provider === provider);
             return (
-              <div key={provider}>
-  
+            

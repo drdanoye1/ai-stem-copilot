@@ -53,6 +53,7 @@
     background: var(--bg-base);
     color: var(--text-primary);
     font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+    overflow-x: hidden;
     @apply antialiased;
   }
 
@@ -248,6 +249,4 @@
     }
 
     /* Prevent horizontal scroll on page bodies */
-    body { overflow-x: hidden; }
-  }
-}
+    body { over
