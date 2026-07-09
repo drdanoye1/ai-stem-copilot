@@ -37,18 +37,40 @@ except ImportError:
     anthropic_sdk = None
     ANTHROPIC_AVAILABLE = False
 
+try:
+    import google.generativeai as genai
+    import asyncio as _asyncio
+    GEMINI_AVAILABLE = True
+except ImportError:
+    genai = None
+    GEMINI_AVAILABLE = False
+
 router = APIRouter(prefix="/math", tags=["math"])
 
 # ── Model routing ─────────────────────────────────────────────────────────────
 
 MODEL_PROVIDER_MAP = {
-    "gpt-4o":            "openai",
-    "gpt-4o-mini":       "openai",
-    "gpt-4-turbo":       "openai",
-    "claude-sonnet-4":   "anthropic",
-    "claude-haiku-4":    "anthropic",
-    "claude-opus-4":     "anthropic",
-    "claude-3-5-sonnet": "anthropic",
+    "gpt-4o":              "openai",
+    "gpt-4o-mini":         "openai",
+    "gpt-4-turbo":         "openai",
+    "claude-sonnet-4":     "anthropic",
+    "claude-haiku-4":      "anthropic",
+    "claude-opus-4":       "anthropic",
+    "claude-3-5-sonnet":   "anthropic",
+    "gemini-1.5-pro":      "google",
+    "gemini-1.5-flash":    "google",
+}
+
+ANTHROPIC_MODEL_MAP = {
+    "claude-sonnet-4":   "claude-sonnet-4-5",
+    "claude-haiku-4":    "claude-haiku-4-5",
+    "claude-opus-4":     "claude-opus-4-5",
+    "claude-3-5-sonnet": "claude-sonnet-4-6",
+}
+
+GEMINI_MODEL_MAP = {
+    "gemini-1.5-pro":   "gemini-1.5-pro",
+    "gemini-1.5-flash": "gemini-1.5-flash",
 }
 
 # ── Prompt templates ──────────────────────────────────────────────────────────
@@ -449,7 +471,6 @@ CURRICULUM_CONTEXT = {
     "tvet":       "Technical and Vocational Education and Training (TVET) applied mathematics. Emphasise real-world trade/technical applications.",
 }
 
-
 PRACTICE_PROMPT = """Generate {count} {difficulty} practice problems for:
 
 SUBJECT: {subject}
@@ -463,814 +484,1135 @@ Format each problem as:
 ### Problem {n}
 [Problem statement using LaTeX]
 
-**Hint:** [Optional hint — only include if difficulty is beginner/easy; omit for hard/expert]
+**Hint:** [Optional hint — only include if difficulty is Hard or Expert]
 
-**Answer:** [Final answer only — no working]
+<details>
+<summary>Show Solution</summary>
 
+[Complete step-by-step solution using LaTeX]
+
+**Answer:** $[final answer]$
+</details>
 ---
 
-Generate exactly {count} problems. Number them 1 through {count}.
-Vary problem types within the topic. Use LaTeX for all mathematics."""
-
-SCENARIO_SYSTEM = """You are an expert mathematics educator specialising in real-world applications.
-Your role: create vivid, engaging real-world scenarios that motivate a mathematics concept.
-FORMATTING RULES:
-- Use LaTeX for ALL mathematical expressions ($...$ inline, $$...$$ display)
-- Use ## for section headings
-- Lead with story/narrative before introducing any mathematics
-- Show the full mathematical model, then solve it step by step"""
-
-SCENARIO_PROMPT = """Create a rich real-world scenario that teaches the following concept:
-
-TOPIC: {topic}
-SUBJECT: {subject}
-EDUCATION LEVEL: {level}
-CURRICULUM: {curriculum}
-
-Structure your response exactly as follows:
-
-## The Scenario
-[2-4 sentence narrative story that motivates the mathematics — profession, problem, tension]
-
-## The Mathematics
-[Introduce variables and set up the mathematical model using LaTeX]
-[Solve completely step-by-step]
-
-## The Result
-[Plain-English interpretation of the answer in the story context]
-
-## Try It Yourself
-[One follow-up problem that changes a parameter — with answer]
-
-## Key Insight
-[1-2 sentence explanation of what this scenario reveals about the mathematics]"""
-
-REFORMULATE_PROMPT = """You are an expert mathematics curriculum designer.
-
-Given this raw input from a student or teacher:
-INPUT: {raw_input}
-
-SUBJECT AREA: {subject}
-EDUCATION LEVEL: {level}
-CURRICULUM: {curriculum}
-CONTEXT (if any): {context}
-
-Generate 3 well-formed, specific mathematics questions or topics that the user probably means.
-Each suggestion should be precise enough to generate a complete lesson or solution.
-
-Respond with ONLY a JSON array of 3 strings, no other text:
-["suggestion 1", "suggestion 2", "suggestion 3"]"""
-
-
-# ── Model maps ────────────────────────────────────────────────────────────────
-
-ANTHROPIC_MODEL_MAP = {
-    "claude-sonnet-4":   "claude-sonnet-4-5",
-    "claude-haiku-4":    "claude-haiku-4-5",
-    "claude-opus-4":     "claude-opus-4-5",
-    "claude-3-5-sonnet": "claude-sonnet-4-6",
-}
-
-GEMINI_MODEL_MAP = {
-    "gemini-1.5-pro":   "gemini-1.5-pro",
-    "gemini-1.5-flash": "gemini-1.5-flash",
-    "gemini-pro":       "gemini-1.5-pro",
-}
-
-# Add Gemini to provider map
-MODEL_PROVIDER_MAP.update({
-    "gemini-1.5-pro":   "google",
-    "gemini-1.5-flash": "google",
-})
-
-
-# ── Graceful Gemini import ────────────────────────────────────────────────────
-
-try:
-    import google.generativeai as genai
-    GEMINI_AVAILABLE = True
-except ImportError:
-    genai = None  # type: ignore
-    GEMINI_AVAILABLE = False
-
-
-# ── Core AI caller ────────────────────────────────────────────────────────────
-
-import asyncio
-
-async def call_ai(system: str, user: str, model: str = "gpt-4o", max_tokens: int = 2000) -> tuple[str, int, int]:
-    """
-    Unified AI call. Returns (response_text, prompt_tokens, completion_tokens).
-    Supports OpenAI, Anthropic Claude, and Google Gemini.
-    """
-    provider = MODEL_PROVIDER_MAP.get(model, "openai")
-
-    # ── Google Gemini ──────────────────────────────────────────────────────
-    if provider == "google":
-        if not GEMINI_AVAILABLE:
-            raise HTTPException(500, "Google Generative AI package not installed.")
-        api_key = getattr(settings, "GOOGLE_API_KEY", "") or ""
-        if not api_key:
-            raise HTTPException(500, "GOOGLE_API_KEY not configured.")
-        gemini_model_id = GEMINI_MODEL_MAP.get(model, "gemini-1.5-pro")
-        def _gemini_call():
-            genai.configure(api_key=api_key)
-            gm = genai.GenerativeModel(
-                model_name=gemini_model_id,
-                system_instruction=system,
-            )
-            resp = gm.generate_content(user)
-            return resp.text or ""
-        text = await asyncio.to_thread(_gemini_call)
-        return text, 0, 0
-
-    # ── Anthropic Claude ───────────────────────────────────────────────────
-    if provider == "anthropic":
-        if not ANTHROPIC_AVAILABLE or not anthropic_sdk:
-            raise HTTPException(500, "Anthropic package not installed.")
-        api_key = getattr(settings, "ANTHROPIC_API_KEY", "") or ""
-        if not api_key:
-            raise HTTPException(500, "ANTHROPIC_API_KEY not configured.")
-        api_model = ANTHROPIC_MODEL_MAP.get(model, model)
-        client = anthropic_sdk.AsyncAnthropic(api_key=api_key, timeout=60.0)
-        resp = await client.messages.create(
-            model=api_model,
-            max_tokens=max_tokens,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-        )
-        text = resp.content[0].text if resp.content else ""
-        return text, resp.usage.input_tokens, resp.usage.output_tokens
-
-    # ── OpenAI (default) ───────────────────────────────────────────────────
-    if not OPENAI_AVAILABLE or not AsyncOpenAI:
-        raise HTTPException(500, "OpenAI package not installed.")
-    api_key = getattr(settings, "OPENAI_API_KEY", "") or ""
-    if not api_key:
-        raise HTTPException(500, "OPENAI_API_KEY not configured.")
-    client = AsyncOpenAI(api_key=api_key, timeout=60.0)
-    resp = await client.chat.completions.create(
-        model=model,
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-        max_tokens=max_tokens,
-        temperature=0.7,
-    )
-    text = resp.choices[0].message.content or ""
-    usage = resp.usage
-    return text, (usage.prompt_tokens if usage else 0), (usage.completion_tokens if usage else 0)
-
-
-# ── VizHint extraction ────────────────────────────────────────────────────────
-
-def _extract_viz_hints(text: str) -> list[dict]:
-    """Pull [VIZ_HINT]...{json}...[/VIZ_HINT] blocks out of AI output."""
-    hints = []
-    for m in _re.finditer(r'\[VIZ_HINT\](.*?)\[/VIZ_HINT\]', text, _re.DOTALL):
-        try:
-            hints.append(_json.loads(m.group(1).strip()))
-        except Exception:
-            pass
-    return hints
-
-def _strip_viz(text: str) -> str:
-    return _re.sub(r'\[VIZ_HINT\].*?\[/VIZ_HINT\]', '', text, flags=_re.DOTALL).strip()
-
+Problems should vary in style and approach. Ensure all {count} problems are distinct."""
 
 # ── Pydantic schemas ──────────────────────────────────────────────────────────
 
-class SessionOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+class SolveRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+    problem: str
+    subject: str = "algebra"
+    level: str = "high_school"
+    sublevel: Optional[str] = None
+    style: str = "detailed"
+    curriculum: str = "general"
+    model_name: str = "gpt-4o"
+    max_tokens: Optional[int] = None
+
+
+class ExploreRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+    topic: str
+    subject: str = "algebra"
+    level: str = "high_school"
+    sublevel: Optional[str] = None
+    example_count: int = 3
+    curriculum: str = "general"
+    model_name: str = "gpt-4o"
+    max_tokens: Optional[int] = None
+
+
+class PracticeRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+    subject: str = "algebra"
+    topic: Optional[str] = None
+    level: str = "high_school"
+    sublevel: Optional[str] = None
+    count: int = 5
+    difficulty: str = "medium"
+    curriculum: str = "general"
+    model_name: str = "gpt-4o"
+    max_tokens: Optional[int] = None
+
+
+# ── Visualization hint extractor ──────────────────────────────────────────────
+
+_VIZ_HINT_RE = _re.compile(r'\[VIZ_HINT\]\s*(\{.*?\})\s*\[/VIZ_HINT\]', _re.DOTALL)
+_VIZ_TYPES   = {"function_graph", "parametric", "statistics_chart", "surface_3d",
+                "geometry", "number_line", "none"}
+
+
+def _find_balanced_json(text: str, start: int) -> Optional[str]:
+    """Return the smallest balanced {...} string starting at `start`, or None."""
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == '{':
+            depth += 1
+        elif text[i] == '}':
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return None
+
+
+def _extract_viz_hint(text: str) -> tuple[str, Optional[dict]]:
+    """
+    Strip visualization hint from output text; return (clean_text, hint_dict).
+
+    Handles two cases:
+    1. AI used the [VIZ_HINT]...[/VIZ_HINT] delimiters correctly.
+    2. AI forgot the delimiters and output bare JSON (most common failure mode).
+    """
+    # ── Case 1: delimited block ───────────────────────────────────────────────
+    m = _VIZ_HINT_RE.search(text)
+    if m:
+        try:
+            hint = _json.loads(m.group(1))
+        except Exception:
+            hint = None
+        cleaned = (text[:m.start()].rstrip() + "\n" + text[m.end():].lstrip()).strip()
+        return cleaned, hint
+
+    # ── Case 2: bare JSON blob (AI omitted delimiters) ────────────────────────
+    # Search backwards for the last {"type": occurrence so we find the hint, not
+    # an inline example that the AI may have written earlier in the explanation.
+    for marker in ('{"type":', '{ "type":'):
+        idx = text.rfind(marker)
+        if idx == -1:
+            continue
+        json_str = _find_balanced_json(text, idx)
+        if json_str is None:
+            continue
+        try:
+            hint = _json.loads(json_str)
+        except Exception:
+            continue
+        if not isinstance(hint, dict) or hint.get("type") not in _VIZ_TYPES:
+            continue
+        end = idx + len(json_str)
+        cleaned = (text[:idx].rstrip() + text[end:].lstrip()).strip()
+        return cleaned, hint
+
+    return text, None
+
+
+class MathSessionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
     id: str
     session_type: str
     subject: str
     level: str
     model_name: str
     input_text: str
-    output_text: Optional[str] = None
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
-    duration_ms: Optional[int] = None
-    is_saved: str = "false"
-    saved_title: Optional[str] = None
-    extra: Optional[Dict[str, Any]] = None
+    output_text: Optional[str]
+    prompt_tokens: int
+    completion_tokens: int
+    duration_ms: Optional[int]
+    is_saved: str
+    saved_title: Optional[str]
+    extra: Optional[Dict] = None
     created_at: str
-
-    @classmethod
-    def from_orm_safe(cls, s: MathSession) -> "SessionOut":
-        return cls(
-            id=str(s.id),
-            session_type=s.session_type.value if hasattr(s.session_type, "value") else str(s.session_type),
-            subject=s.subject.value if hasattr(s.subject, "value") else str(s.subject),
-            level=s.level,
-            model_name=s.model_name,
-            input_text=s.input_text,
-            output_text=s.output_text,
-            prompt_tokens=s.prompt_tokens or 0,
-            completion_tokens=s.completion_tokens or 0,
-            duration_ms=s.duration_ms,
-            is_saved=s.is_saved or "false",
-            saved_title=s.saved_title,
-            extra=s.extra or {},
-            created_at=s.created_at.isoformat() if s.created_at else "",
-        )
-
-
-class SolveRequest(BaseModel):
-    problem: str
-    subject: str = "algebra"
-    level: str = "high_school"
-    sublevel: Optional[str] = None
-    style: str = "step_by_step"
-    curriculum: str = "general"
-    model_name: str = "gpt-4o"
-    max_tokens: int = 2000
-
-
-class ExploreRequest(BaseModel):
-    topic: str
-    subject: str = "algebra"
-    level: str = "high_school"
-    sublevel: Optional[str] = None
-    curriculum: str = "general"
-    model_name: str = "gpt-4o"
-    example_count: int = 3
-    max_tokens: int = 2000
-
-
-class PracticeRequest(BaseModel):
-    topic: str
-    subject: str = "algebra"
-    level: str = "high_school"
-    sublevel: Optional[str] = None
-    curriculum: str = "general"
-    difficulty: str = "medium"
-    count: int = 5
-    model_name: str = "gpt-4o"
-    max_tokens: int = 2000
 
 
 class TheoryRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     topic: str
     subject: str = "algebra"
     level: str = "high_school"
     sublevel: Optional[str] = None
-    theory_level: str = "standard"
+    theory_level: str = "intermediate"   # beginner | intermediate | advanced | university
     curriculum: str = "general"
     model_name: str = "gpt-4o"
-    max_tokens: int = 2500
+    max_tokens: Optional[int] = None
 
 
 class ObjectivesRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     topic: str
     subject: str = "algebra"
     level: str = "high_school"
     curriculum: str = "general"
     model_name: str = "gpt-4o"
-    max_tokens: int = 800
-
-
-class ScenarioRequest(BaseModel):
-    topic: str
-    subject: str = "algebra"
-    level: str = "high_school"
-    curriculum: str = "general"
-    model_name: str = "gpt-4o"
-    max_tokens: int = 1500
-    image_model: Optional[str] = None
-
-
-class ReformulateRequest(BaseModel):
-    topic: Optional[str] = None
-    subject: str = "algebra"
-    level: str = "high_school"
-    curriculum: str = "general"
-    context: Optional[str] = None
-    model_name: str = "gpt-4o"
-    raw_input: Optional[str] = None
 
 
 class VisualizeRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     topic: str
     subject: str = "algebra"
     level: str = "high_school"
     curriculum: str = "general"
     model_name: str = "gpt-4o"
-    max_tokens: int = 1500
 
 
 class SimulateRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     topic: str
     subject: str = "algebra"
     level: str = "high_school"
-    model_name: str = "gpt-4o"
     curriculum: str = "general"
-    max_tokens: int = 1500
+    model_name: str = "gpt-4o"
 
 
 class ApplicationsRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     topic: str
     subject: str = "algebra"
     level: str = "high_school"
     curriculum: str = "general"
     model_name: str = "gpt-4o"
-    max_tokens: int = 1500
 
 
-class SaveTitleRequest(BaseModel):
-    title: str
+class ReformulateRequest(BaseModel):
+    raw_input: str
+    subject: str = "general"
+    level: str = "high_school"
+    curriculum: str = "general"
+    context: str = "general"  # theory | visualization | simulation | applications | solve
 
 
-class DataFetchRequest(BaseModel):
-    source: str
-    indicator: str
-    country: Optional[str] = None
-    city: Optional[str] = None
-    years: int = 5
-
-
-class DataAnalyzeRequest(BaseModel):
-    source: str
-    indicator: Optional[str] = None
-    indicator_name: Optional[str] = None
-    location: Optional[str] = None
-    unit: Optional[str] = None
-    data: List[Dict[str, Any]]
-    question: Optional[str] = None
-    subject: Optional[str] = None
+class ScenarioRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+    topic: str
+    subject: str = "algebra"
+    level: str = "high_school"
+    curriculum: str = "general"
     model_name: str = "gpt-4o"
+    image_model: str = "dall-e-2"   # dall-e-2 | dall-e-3 | gpt-image-1
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+SCENARIO_PROMPT = """You are an expert educational prompt engineer specialising in DALL-E 3 image generation.
 
-def _safe_subject(s: str) -> MathSubject:
-    try:
-        return MathSubject(s)
-    except ValueError:
-        return MathSubject.other
+Topic: {topic}
+Subject: {subject}
+Level: {level}
+Curriculum: {curriculum}
+
+Generate two highly specific, photorealistic DALL-E 3 image prompts that illustrate this mathematical or engineering topic:
+
+PROBLEM IMAGE — a real-world scene showing the physical problem, failure, challenge, or phenomenon that this mathematics addresses.
+SOLUTION IMAGE — a real-world scene showing the successfully engineered or resolved outcome, demonstrating the mathematics at work.
+
+Rules for each prompt:
+- Be extremely specific: describe the exact object, setting, material, scale, lighting, and camera angle
+- Photorealistic documentary-style photograph — no diagrams, no overlaid text, no cartoons
+- Include context clues that make the before/after narrative clear
+- 1–2 sentences maximum per prompt
+
+Return ONLY a JSON object, no markdown fences, no explanation:
+{{
+  "problem_prompt": "...",
+  "problem_description": "One sentence explaining what this image represents as the problem.",
+  "solution_prompt": "...",
+  "solution_description": "One sentence explaining what this image represents as the solution."
+}}"""
 
 
-async def _save_session(
-    db: AsyncSession,
-    user: User,
-    session_type: SessionType,
-    subject: str,
-    level: str,
-    model_name: str,
-    input_text: str,
-    output_text: str,
-    prompt_tokens: int,
-    completion_tokens: int,
-    duration_ms: int,
-    extra: Optional[dict] = None,
-) -> MathSession:
-    sess = MathSession(
-        user_id=user.id,
-        session_type=session_type,
-        subject=_safe_subject(subject),
-        level=level,
-        model_name=model_name,
-        input_text=input_text,
-        output_text=output_text,
-        prompt_tokens=prompt_tokens,
-        completion_tokens=completion_tokens,
-        duration_ms=duration_ms,
-        extra=extra or {},
+class PatchSessionRequest(BaseModel):
+    is_saved: str          # "true" or "false"
+    saved_title: Optional[str] = None
+
+
+class ProgressOut(BaseModel):
+    total_sessions: int
+    sessions_this_week: int
+    streak_days: int
+    saved_count: int
+    subjects_practiced: List[str]
+    recent_sessions: List[MathSessionOut]
+    all_sessions: List[MathSessionOut]
+    topic_progress: List[Dict]
+
+
+# ── AI provider calls ─────────────────────────────────────────────────────────
+
+async def call_openai(system: str, prompt: str, model: str, max_tokens: int) -> tuple[str, int, int]:
+    if not OPENAI_AVAILABLE or not getattr(settings, "OPENAI_API_KEY", ""):
+        raise HTTPException(500, "OpenAI not configured. Set OPENAI_API_KEY.")
+    client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY, timeout=180.0)
+    resp = await client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user",   "content": prompt},
+        ],
+        max_tokens=max_tokens,
     )
-    db.add(sess)
-    await db.commit()
-    await db.refresh(sess)
-    return sess
+    text = resp.choices[0].message.content or ""
+    return text, resp.usage.prompt_tokens, resp.usage.completion_tokens
 
 
-# ── Routes ────────────────────────────────────────────────────────────────────
+async def call_anthropic(system: str, prompt: str, model: str, max_tokens: int) -> tuple[str, int, int]:
+    if not ANTHROPIC_AVAILABLE or not getattr(settings, "ANTHROPIC_API_KEY", ""):
+        raise HTTPException(500, "Anthropic not configured. Set ANTHROPIC_API_KEY.")
+    model_map = ANTHROPIC_MODEL_MAP
+    api_model = model_map.get(model, model)
+    client = anthropic_sdk.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY, timeout=180.0)
+    resp = await client.messages.create(
+        model=api_model,
+        max_tokens=max_tokens,
+        system=system,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    text = resp.content[0].text if resp.content else ""
+    return text, resp.usage.input_tokens, resp.usage.output_tokens
 
-router = APIRouter(prefix="/math", tags=["math"])
+
+async def call_gemini(system: str, prompt: str, model: str, max_tokens: int) -> tuple[str, int, int]:
+    if not GEMINI_AVAILABLE or not genai:
+        raise HTTPException(500, "Google Generative AI package not installed.")
+    api_key = getattr(settings, "GOOGLE_API_KEY", "") or ""
+    if not api_key:
+        raise HTTPException(500, "GOOGLE_API_KEY not configured.")
+    gemini_model_id = GEMINI_MODEL_MAP.get(model, "gemini-1.5-pro")
+    def _sync_call():
+        genai.configure(api_key=api_key)
+        gm = genai.GenerativeModel(model_name=gemini_model_id, system_instruction=system)
+        resp = gm.generate_content(prompt)
+        return resp.text or ""
+    text = await _asyncio.to_thread(_sync_call)
+    return text, 0, 0
 
 
-@router.post("/solve", response_model=SessionOut)
+async def dispatch(system: str, prompt: str, model: str, max_tokens: int) -> tuple[str, int, int]:
+    provider = MODEL_PROVIDER_MAP.get(model, "openai")
+    if provider == "google":
+        return await call_gemini(system, prompt, model, max_tokens)
+    if provider == "anthropic":
+        return await call_anthropic(system, prompt, model, max_tokens)
+    return await call_openai(system, prompt, model, max_tokens)
+
+
+def _session_out(s: MathSession) -> MathSessionOut:
+    return MathSessionOut(
+        id=str(s.id),
+        session_type=s.session_type.value,
+        subject=s.subject.value if s.subject else "other",
+        level=s.level,
+        model_name=s.model_name,
+        input_text=s.input_text,
+        output_text=s.output_text,
+        prompt_tokens=s.prompt_tokens or 0,
+        completion_tokens=s.completion_tokens or 0,
+        duration_ms=s.duration_ms,
+        is_saved=s.is_saved or "false",
+        saved_title=s.saved_title,
+        extra=s.extra if s.extra else None,
+        created_at=s.created_at.isoformat() if s.created_at else "",
+    )
+
+
+# ── Endpoints ─────────────────────────────────────────────────────────────────
+
+
+@router.post("/solve", response_model=MathSessionOut, status_code=status.HTTP_201_CREATED)
 async def solve(
     req: SolveRequest,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
 ):
-    level_str = _level_str(req.level, req.sublevel)
-    difficulty_note = DIFFICULTY_NOTES.get(req.level, "")
+    """AI Math Solver — step-by-step solution with LaTeX."""
+    steps_instruction = {
+        "quick":    "## Solution\n### Step 1: [title]\n... (3-5 steps)",
+        "detailed": "## Solution\n### Step 1: [title]\n[explanation]\n$$[math]$$\n### Step 2: ...\n(continue for ALL steps — do not skip any)",
+        "proof":    "## Proof\n**Theorem:** [state theorem]\n**Proof:**\n[rigorous step-by-step proof]",
+    }
+
+    max_tokens = min(max(req.max_tokens or 3500, 500), 7000)
+    subject_enum = MathSubject.other
+    for s in MathSubject:
+        if s.value == req.subject:
+            subject_enum = s
+            break
+
     curriculum_ctx = CURRICULUM_CONTEXT.get(req.curriculum, CURRICULUM_CONTEXT["general"])
-    steps_instruction = (
-        "## Steps\nProvide numbered steps. Each step: title, explanation, LaTeX derivation."
-        if req.style == "step_by_step"
-        else "## Solution\nProvide a complete solution with clear mathematical reasoning."
-    )
-    system = SOLVE_SYSTEM
-    user_prompt = SOLVE_PROMPT.format(
+    level_full = _level_str(req.level, req.sublevel)
+    prompt = SOLVE_PROMPT.format(
         problem=req.problem,
         subject=req.subject.replace("_", " ").title(),
-        level=level_str,
-        style=req.style.replace("_", " "),
+        level=level_full,
+        style=req.style.title(),
         curriculum=curriculum_ctx,
-        steps_instruction=steps_instruction,
-        difficulty_note=difficulty_note,
+        steps_instruction=steps_instruction.get(req.style, steps_instruction["detailed"]),
+        difficulty_note=f"TONE: {DIFFICULTY_NOTES.get(req.level, '')}",
     )
-    t0 = time.monotonic()
-    text, pt, ct = await call_ai(system, user_prompt, req.model_name, req.max_tokens)
-    ms = int((time.monotonic() - t0) * 1000)
-    sess = await _save_session(db, user, SessionType.solve, req.subject, req.level,
-                               req.model_name, req.problem, text, pt, ct, ms)
-    return SessionOut.from_orm_safe(sess)
+
+    start_ms = int(time.time() * 1000)
+    try:
+        output, prompt_tok, completion_tok = await dispatch(SOLVE_SYSTEM, prompt, req.model_name, max_tokens)
+    except Exception as e:
+        logger.error(f"[solve] {type(e).__name__}: {e}", exc_info=True)
+        raise HTTPException(500, f"AI solver error [{type(e).__name__}]: {str(e)[:300]}")
+
+    duration = int(time.time() * 1000) - start_ms
+
+    session = MathSession(
+        user_id=current_user.id,
+        session_type=SessionType.solve,
+        subject=subject_enum,
+        level=req.level,
+        model_name=req.model_name,
+        input_text=req.problem,
+        output_text=output,
+        prompt_tokens=prompt_tok,
+        completion_tokens=completion_tok,
+        duration_ms=duration,
+    )
+    db.add(session)
+    await db.commit()
+    await db.refresh(session)
+
+    try:
+        result = await db.execute(
+            select(UserTopicProgress).where(
+                UserTopicProgress.user_id == current_user.id,
+                UserTopicProgress.subject == req.subject,
+                UserTopicProgress.topic == "general",
+            )
+        )
+        progress = result.scalar_one_or_none()
+        if progress:
+            progress.problems_solved += 1
+        else:
+            db.add(UserTopicProgress(
+                user_id=current_user.id,
+                subject=req.subject,
+                topic="general",
+                problems_solved=1,
+            ))
+        await db.commit()
+    except Exception:
+        pass
+
+    return _session_out(session)
 
 
-@router.post("/explore", response_model=SessionOut)
+@router.post("/explore", response_model=MathSessionOut, status_code=status.HTTP_201_CREATED)
 async def explore(
     req: ExploreRequest,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
 ):
-    level_str = _level_str(req.level, req.sublevel)
+    """Topic Explorer — comprehensive AI explanation of a mathematical concept."""
+    max_tokens = min(max(req.max_tokens or 4096, 500), 7000)
+    subject_enum = MathSubject.other
+    for s in MathSubject:
+        if s.value == req.subject:
+            subject_enum = s
+            break
+
     curriculum_ctx = CURRICULUM_CONTEXT.get(req.curriculum, CURRICULUM_CONTEXT["general"])
-    user_prompt = EXPLORE_PROMPT.format(
+    prompt = EXPLORE_PROMPT.format(
         topic=req.topic,
         subject=req.subject.replace("_", " ").title(),
-        level=level_str,
-        curriculum=curriculum_ctx,
+        level=_level_str(req.level, req.sublevel),
         example_count=req.example_count,
+        curriculum=curriculum_ctx,
     )
-    t0 = time.monotonic()
-    text, pt, ct = await call_ai(EXPLORE_SYSTEM, user_prompt, req.model_name, req.max_tokens)
-    ms = int((time.monotonic() - t0) * 1000)
-    viz = _extract_viz_hints(text)
-    clean = _strip_viz(text)
-    extra = {"viz_hints": viz} if viz else {}
-    sess = await _save_session(db, user, SessionType.explore, req.subject, req.level,
-                               req.model_name, req.topic, clean, pt, ct, ms, extra)
-    return SessionOut.from_orm_safe(sess)
+
+    start_ms = int(time.time() * 1000)
+    try:
+        output, prompt_tok, completion_tok = await dispatch(EXPLORE_SYSTEM, prompt, req.model_name, max_tokens)
+    except Exception as e:
+        raise HTTPException(500, f"AI explorer error: {str(e)[:200]}")
+
+    duration = int(time.time() * 1000) - start_ms
+    output, viz_hint = _extract_viz_hint(output)
+    extra: dict = {"visualization_hints": viz_hint} if viz_hint else {}
+
+    session = MathSession(
+        user_id=current_user.id,
+        session_type=SessionType.explore,
+        subject=subject_enum,
+        level=req.level,
+        model_name=req.model_name,
+        input_text=req.topic,
+        output_text=output,
+        prompt_tokens=prompt_tok,
+        completion_tokens=completion_tok,
+        duration_ms=duration,
+        extra=extra,
+    )
+    db.add(session)
+    await db.commit()
+    await db.refresh(session)
+    return _session_out(session)
 
 
-@router.post("/practice", response_model=SessionOut)
+@router.post("/practice", response_model=MathSessionOut, status_code=status.HTTP_201_CREATED)
 async def practice(
     req: PracticeRequest,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
 ):
-    level_str = _level_str(req.level, req.sublevel)
+    """Practice Generator — AI-generated problems with worked solutions."""
+    max_tokens = min(max(req.max_tokens or 4096, 500), 7000)
+    subject_enum = MathSubject.other
+    for s in MathSubject:
+        if s.value == req.subject:
+            subject_enum = s
+            break
+
     curriculum_ctx = CURRICULUM_CONTEXT.get(req.curriculum, CURRICULUM_CONTEXT["general"])
-    user_prompt = PRACTICE_PROMPT.format(
-        topic=req.topic, subject=req.subject.replace("_", " ").title(),
-        level=level_str, curriculum=curriculum_ctx,
-        difficulty=req.difficulty, count=req.count, n="{n}",
+    prompt = PRACTICE_PROMPT.format(
+        count=req.count,
+        difficulty=req.difficulty.title(),
+        subject=req.subject.replace("_", " ").title(),
+        topic=req.topic or "any topic in this subject",
+        level=_level_str(req.level, req.sublevel),
+        curriculum=curriculum_ctx,
+        n="{n}",
     )
-    t0 = time.monotonic()
-    text, pt, ct = await call_ai(PRACTICE_SYSTEM, user_prompt, req.model_name, req.max_tokens)
-    ms = int((time.monotonic() - t0) * 1000)
-    sess = await _save_session(db, user, SessionType.practice, req.subject, req.level,
-                               req.model_name, req.topic, text, pt, ct, ms)
-    return SessionOut.from_orm_safe(sess)
+
+    start_ms = int(time.time() * 1000)
+    try:
+        output, prompt_tok, completion_tok = await dispatch(PRACTICE_SYSTEM, prompt, req.model_name, max_tokens)
+    except Exception as e:
+        raise HTTPException(500, f"AI practice error: {str(e)[:200]}")
+
+    duration = int(time.time() * 1000) - start_ms
+
+    session = MathSession(
+        user_id=current_user.id,
+        session_type=SessionType.practice,
+        subject=subject_enum,
+        level=req.level,
+        model_name=req.model_name,
+        input_text=f"{req.subject} — {req.topic or 'general'} — {req.difficulty} × {req.count}",
+        output_text=output,
+        prompt_tokens=prompt_tok,
+        completion_tokens=completion_tok,
+        duration_ms=duration,
+    )
+    db.add(session)
+    await db.commit()
+    await db.refresh(session)
+    return _session_out(session)
 
 
-@router.post("/theory", response_model=SessionOut)
+@router.post("/theory", response_model=MathSessionOut, status_code=status.HTTP_201_CREATED)
 async def theory(
     req: TheoryRequest,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
 ):
-    level_str = _level_str(req.level, req.sublevel)
+    """Theory Intelligence™ — rigorous lesson with derivation, proof, formulas, and examples."""
+    THEORY_LEVEL_DESC = {
+        "beginner":     "Beginner — use plain language, intuitive proofs, minimal jargon. Prioritise understanding over rigour.",
+        "intermediate": "Intermediate — use standard mathematical notation. Show all steps. Reference theorems by name.",
+        "advanced":     "Advanced — use rigorous notation. Formal proofs. Reference related theorems and corollaries.",
+        "university":   "University / Graduate — research-level rigour. Use abstract notation where appropriate. Cite standard references if relevant.",
+    }
+
+    max_tokens = min(max(req.max_tokens or 5000, 1000), 7000)
+    subject_enum = MathSubject.other
+    for s in MathSubject:
+        if s.value == req.subject:
+            subject_enum = s
+            break
+
     curriculum_ctx = CURRICULUM_CONTEXT.get(req.curriculum, CURRICULUM_CONTEXT["general"])
-    user_prompt = THEORY_PROMPT.format(
+    level_full = _level_str(req.level, req.sublevel)
+    theory_desc = THEORY_LEVEL_DESC.get(req.theory_level, THEORY_LEVEL_DESC["intermediate"])
+
+    prompt = THEORY_PROMPT.format(
         topic=req.topic,
         subject=req.subject.replace("_", " ").title(),
-        level=level_str,
-        theory_level=req.theory_level,
+        level=level_full,
+        theory_level=theory_desc,
         curriculum=curriculum_ctx,
     )
-    t0 = time.monotonic()
-    text, pt, ct = await call_ai(THEORY_SYSTEM, user_prompt, req.model_name, req.max_tokens)
-    ms = int((time.monotonic() - t0) * 1000)
-    viz = _extract_viz_hints(text)
-    clean = _strip_viz(text)
-    extra = {"viz_hints": viz} if viz else {}
-    sess = await _save_session(db, user, SessionType.theory, req.subject, req.level,
-                               req.model_name, req.topic, clean, pt, ct, ms, extra)
-    return SessionOut.from_orm_safe(sess)
+
+    start_ms = int(time.time() * 1000)
+    try:
+        output, prompt_tok, completion_tok = await dispatch(THEORY_SYSTEM, prompt, req.model_name, max_tokens)
+    except Exception as e:
+        logger.error(f"[theory] {type(e).__name__}: {e}", exc_info=True)
+        raise HTTPException(500, f"AI theory error [{type(e).__name__}]: {str(e)[:300]}")
+
+    duration = int(time.time() * 1000) - start_ms
+    output, viz_hint = _extract_viz_hint(output)
+    theory_extra: dict = {
+        "theory_level": req.theory_level,
+        "curriculum": req.curriculum,
+    }
+    if viz_hint:
+        theory_extra["visualization_hints"] = viz_hint
+
+    session = MathSession(
+        user_id=current_user.id,
+        session_type=SessionType.theory,
+        subject=subject_enum,
+        level=req.level,
+        model_name=req.model_name,
+        input_text=req.topic,
+        output_text=output,
+        prompt_tokens=prompt_tok,
+        completion_tokens=completion_tok,
+        duration_ms=duration,
+        extra=theory_extra,
+    )
+    db.add(session)
+    await db.commit()
+    await db.refresh(session)
+    return _session_out(session)
 
 
-@router.post("/objectives")
+@router.post("/objectives", status_code=200)
 async def objectives(
     req: ObjectivesRequest,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    curriculum_ctx = CURRICULUM_CONTEXT.get(req.curriculum, CURRICULUM_CONTEXT["general"])
-    user_prompt = OBJECTIVES_PROMPT.format(
+    """Learning Objectives — returns Bloom's taxonomy-tagged objectives for a topic as JSON."""
+    import json
+
+    prompt = OBJECTIVES_PROMPT.format(
         topic=req.topic,
         subject=req.subject.replace("_", " ").title(),
-        level=req.level.replace("_", " ").title(),
-        curriculum=curriculum_ctx,
+        level=LEVEL_LABELS.get(req.level, req.level.replace("_", " ").title()),
+        curriculum=CURRICULUM_CONTEXT.get(req.curriculum, CURRICULUM_CONTEXT["general"]),
     )
-    system = "You are an expert curriculum designer. Return ONLY valid JSON — no markdown, no explanation."
-    text, _, _ = await call_ai(system, user_prompt, req.model_name, req.max_tokens)
+
     try:
-        data = _json.loads(_re.sub(r'^```json\s*|```$', '', text.strip(), flags=_re.MULTILINE))
-    except Exception:
-        data = {"objectives": [], "prerequisites": [], "applications": []}
-    return data
+        raw, _, _ = await dispatch(
+            "You are a JSON generator. Return only valid JSON arrays. No markdown, no explanation.",
+            prompt,
+            req.model_name,
+            800,
+        )
+        # Strip potential markdown code fences
+        cleaned = raw.strip()
+        if cleaned.startswith("```"):
+            lines = cleaned.split("\n")
+            cleaned = "\n".join(lines[1:-1]) if len(lines) > 2 else cleaned
+        objectives_list = json.loads(cleaned)
+    except Exception as e:
+        logger.error(f"[objectives] {type(e).__name__}: {e}", exc_info=True)
+        # Return a sensible fallback so the UI doesn't crash
+        objectives_list = [
+            {"objective": f"Understand the core concepts of {req.topic}", "bloom": "Understand", "description": ""},
+            {"objective": f"Apply {req.topic} to solve problems", "bloom": "Apply", "description": ""},
+            {"objective": f"Analyse relationships involving {req.topic}", "bloom": "Analyze", "description": ""},
+        ]
+
+    return {"topic": req.topic, "objectives": objectives_list}
 
 
-@router.post("/scenario")
-async def scenario(
-    req: ScenarioRequest,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    curriculum_ctx = CURRICULUM_CONTEXT.get(req.curriculum, CURRICULUM_CONTEXT["general"])
-    user_prompt = SCENARIO_PROMPT.format(
-        topic=req.topic,
-        subject=req.subject.replace("_", " ").title(),
-        level=req.level.replace("_", " ").title(),
-        curriculum=curriculum_ctx,
-    )
-    t0 = time.monotonic()
-    text, pt, ct = await call_ai(SCENARIO_SYSTEM, user_prompt, req.model_name, req.max_tokens)
-    ms = int((time.monotonic() - t0) * 1000)
-    return {
-        "topic": req.topic,
-        "subject": req.subject,
-        "level": req.level,
-        "scenario_text": text,
-        "model_used": req.model_name,
-        "duration_ms": ms,
-    }
+def _parse_json_response(raw: str) -> dict:
+    """Strip markdown fences and parse JSON. Raises ValueError on failure."""
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.split("\n")
+        cleaned = "\n".join(lines[1:-1]) if len(lines) > 2 else cleaned
+    return _json.loads(cleaned)
 
 
-@router.post("/reformulate")
-async def reformulate(
-    req: ReformulateRequest,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    raw = req.raw_input or req.topic or req.context or ""
-    curriculum_ctx = CURRICULUM_CONTEXT.get(req.curriculum, CURRICULUM_CONTEXT["general"])
-    user_prompt = REFORMULATE_PROMPT.format(
-        raw_input=raw,
-        subject=req.subject.replace("_", " ").title(),
-        level=req.level.replace("_", " ").title(),
-        curriculum=curriculum_ctx,
-        context=req.context or "none",
-    )
-    system = "You are an expert mathematics curriculum designer. Return ONLY a valid JSON array of 3 strings."
-    text, _, _ = await call_ai(system, user_prompt, req.model_name, 500)
-    try:
-        suggestions = _json.loads(_re.sub(r'^```json?\s*|```$', '', text.strip(), flags=_re.MULTILINE))
-        if not isinstance(suggestions, list):
-            raise ValueError
-    except Exception:
-        suggestions = [raw, f"{raw} — worked example", f"{raw} — practice problems"]
-    return {"suggestions": suggestions[:3]}
-
-
-@router.post("/visualize")
+@router.post("/visualize", status_code=status.HTTP_200_OK)
 async def visualize(
     req: VisualizeRequest,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
+    """Visualization Gallery — generate 3 charts illuminating different aspects of a topic."""
     curriculum_ctx = CURRICULUM_CONTEXT.get(req.curriculum, CURRICULUM_CONTEXT["general"])
-    user_prompt = VISUALIZE_PROMPT.format(
+    prompt = VISUALIZE_PROMPT.format(
         topic=req.topic,
         subject=req.subject.replace("_", " ").title(),
-        level=req.level.replace("_", " ").title(),
+        level=LEVEL_LABELS.get(req.level, req.level.replace("_", " ").title()),
         curriculum=curriculum_ctx,
     )
-    system = "You are an expert mathematics educator. Return ONLY valid JSON, no markdown."
-    text, _, _ = await call_ai(system, user_prompt, req.model_name, req.max_tokens)
     try:
-        data = _json.loads(_re.sub(r'^```json\s*|```$', '', text.strip(), flags=_re.MULTILINE))
-    except Exception:
-        data = {"visualizations": [], "explanation": text}
-    return data
+        raw, _, _ = await dispatch(
+            "You are a JSON generator for a math visualization system. Return only valid JSON. No markdown.",
+            prompt, req.model_name, 1500,
+        )
+        result = _parse_json_response(raw)
+    except Exception as e:
+        logger.error(f"[visualize] {type(e).__name__}: {e}", exc_info=True)
+        # Graceful fallback
+        result = {
+            "topic": req.topic,
+            "charts": [
+                {
+                    "title": req.topic,
+                    "description": f"Interactive graph of {req.topic}.",
+                    "hint": {"type": "function_graph", "expressions": ["x**2"], "x_range": [-5, 5],
+                             "title": req.topic, "labels": ["f(x)"]},
+                }
+            ],
+        }
+    return result
 
 
-@router.post("/simulate")
+@router.post("/simulate", status_code=status.HTTP_200_OK)
 async def simulate(
     req: SimulateRequest,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
+    """Simulation Intelligence™ — interactive parameter-based simulation for a topic."""
     curriculum_ctx = CURRICULUM_CONTEXT.get(req.curriculum, CURRICULUM_CONTEXT["general"])
-    user_prompt = SIMULATE_PROMPT.format(
+    prompt = SIMULATE_PROMPT.format(
         topic=req.topic,
         subject=req.subject.replace("_", " ").title(),
-        level=req.level.replace("_", " ").title(),
+        level=LEVEL_LABELS.get(req.level, req.level.replace("_", " ").title()),
         curriculum=curriculum_ctx,
     )
-    system = "You are an expert mathematics educator. Return ONLY valid JSON."
-    text, _, _ = await call_ai(system, user_prompt, req.model_name, req.max_tokens)
     try:
-        data = _json.loads(_re.sub(r'^```json\s*|```$', '', text.strip(), flags=_re.MULTILINE))
-    except Exception:
-        data = {"simulation": text}
-    return data
+        raw, _, _ = await dispatch(
+            "You are a JSON generator for an interactive math simulation system. Return only valid JSON. No markdown.",
+            prompt, req.model_name, 1000,
+        )
+        result = _parse_json_response(raw)
+    except Exception as e:
+        logger.error(f"[simulate] {type(e).__name__}: {e}", exc_info=True)
+        result = {
+            "topic": req.topic,
+            "expression": "a*Math.sin(b*x)",
+            "parameters": [
+                {"name": "a", "label": "Amplitude", "min": 0.1, "max": 5, "default": 1, "step": 0.1},
+                {"name": "b", "label": "Frequency", "min": 0.1, "max": 5, "default": 1, "step": 0.1},
+            ],
+            "x_range": [-10, 10],
+            "y_label": "f(x)",
+            "description": f"Interactive simulation for {req.topic}.",
+            "key_insight": "Observe how changing each parameter transforms the graph.",
+            "what_to_observe": [
+                {"parameter": "a", "effect": "Changes the vertical scale (amplitude)."},
+                {"parameter": "b", "effect": "Changes the horizontal compression (frequency)."},
+            ],
+        }
+    return result
 
 
-@router.post("/applications")
+@router.post("/applications", status_code=status.HTTP_200_OK)
 async def applications(
     req: ApplicationsRequest,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
+    """Applications Intelligence™ — real-world applications and career connections for a topic."""
     curriculum_ctx = CURRICULUM_CONTEXT.get(req.curriculum, CURRICULUM_CONTEXT["general"])
-    user_prompt = APPLICATIONS_PROMPT.format(
+    prompt = APPLICATIONS_PROMPT.format(
         topic=req.topic,
         subject=req.subject.replace("_", " ").title(),
-        level=req.level.replace("_", " ").title(),
+        level=LEVEL_LABELS.get(req.level, req.level.replace("_", " ").title()),
         curriculum=curriculum_ctx,
     )
-    system = "You are an expert at connecting mathematics to real-world applications. Return ONLY valid JSON."
-    text, _, _ = await call_ai(system, user_prompt, req.model_name, req.max_tokens)
     try:
-        data = _json.loads(_re.sub(r'^```json\s*|```$', '', text.strip(), flags=_re.MULTILINE))
-    except Exception:
-        data = {"applications": text}
-    return data
+        raw, _, _ = await dispatch(
+            "You are a JSON generator for a math applications system. Return only valid JSON. No markdown.",
+            prompt, req.model_name, 2000,
+        )
+        result = _parse_json_response(raw)
+    except Exception as e:
+        logger.error(f"[applications] {type(e).__name__}: {e}", exc_info=True)
+        result = {
+            "topic": req.topic,
+            "applications": [
+                {
+                    "title": f"{req.topic} in Engineering",
+                    "field": "Engineering",
+                    "icon": "engineering",
+                    "problem": f"Engineers apply {req.topic} to design and analyze systems.",
+                    "math_connection": f"{req.topic} provides the mathematical foundation.",
+                    "formula": "",
+                    "example": "See your textbook for concrete examples.",
+                    "careers": ["Engineer", "Scientist", "Analyst"],
+                }
+            ],
+        }
+    return result
 
 
-# ── Session management ────────────────────────────────────────────────────────
-
-@router.get("/progress")
-async def progress(
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+@router.post("/reformulate", status_code=status.HTTP_200_OK)
+async def reformulate(
+    req: ReformulateRequest,
+    current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(
-        select(MathSession)
-        .where(MathSession.user_id == user.id)
-        .order_by(desc(MathSession.created_at))
-        .limit(200)
+    """Return 3 AI-improved reformulations of the user's raw topic/problem input."""
+    context_hints = {
+        "theory":         "a theory lesson covering formal definitions, derivations, proofs, and historical context",
+        "visualization":  "mathematical visualization using graphs, charts, 3D surfaces, or geometric constructions",
+        "simulation":     "an interactive mathematical simulation with adjustable parameters and real-time feedback",
+        "applications":   "real-world engineering or scientific applications of mathematics",
+        "solve":          "a precisely stated, solvable mathematics problem with clear constraints",
+    }
+    hint = context_hints.get(req.context, "a mathematics exercise")
+    system = "You are a mathematics education expert. Your job is to improve vague or incomplete topic inputs into clear, specific, well-scoped formulations."
+    prompt = f"""The user typed this rough input for {hint}:
+"{req.raw_input}"
+
+Subject: {req.subject.replace('_', ' ')}
+Education level: {req.level.replace('_', ' ')}
+Curriculum: {req.curriculum}
+
+Generate exactly 3 distinct, well-formulated reformulations that are specific, pedagogically clear, and appropriate for the context and level.
+Return ONLY a valid JSON array of exactly 3 strings, with no explanation, no markdown, no extra text:
+["reformulation 1", "reformulation 2", "reformulation 3"]"""
+
+    try:
+        raw, _, _ = await dispatch(system, prompt, "gpt-4o-mini", 300)
+        import json as _json, re as _re
+        m = _re.search(r'\[.*?\]', raw, _re.DOTALL)
+        suggestions = _json.loads(m.group()) if m else [req.raw_input]
+        return {"suggestions": suggestions[:3]}
+    except Exception as e:
+        logger.error(f"[reformulate] {e}", exc_info=True)
+        return {"suggestions": []}
+
+
+@router.post("/scenario", status_code=status.HTTP_200_OK)
+async def scenario(
+    req: ScenarioRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Scenario Intelligence™ — generate two photorealistic DALL-E 3 images: problem + solution."""
+    import asyncio
+
+    if not OPENAI_AVAILABLE or not getattr(settings, "OPENAI_API_KEY", ""):
+        raise HTTPException(500, "OpenAI not configured. Set OPENAI_API_KEY.")
+
+    curriculum_ctx = CURRICULUM_CONTEXT.get(req.curriculum, CURRICULUM_CONTEXT["general"])
+    prompt = SCENARIO_PROMPT.format(
+        topic=req.topic,
+        subject=req.subject.replace("_", " ").title(),
+        level=LEVEL_LABELS.get(req.level, req.level.replace("_", " ").title()),
+        curriculum=curriculum_ctx,
     )
-    sessions = result.scalars().all()
-    total = len(sessions)
-    solve_count = sum(1 for s in sessions if s.session_type == SessionType.solve)
-    explore_count = sum(1 for s in sessions if s.session_type == SessionType.explore)
-    practice_count = sum(1 for s in sessions if s.session_type == SessionType.practice)
-    theory_count = sum(1 for s in sessions if s.session_type == SessionType.theory)
-    streak = min(total, 7)
-    recent = sessions[:10]
+
+    # Step 1 — LLM generates precise DALL-E prompts
+    try:
+        raw, _, _ = await dispatch(
+            "You are a JSON generator. Return only valid JSON with no markdown fences.",
+            prompt, req.model_name, 600,
+        )
+        prompts = _parse_json_response(raw)
+        problem_prompt = prompts["problem_prompt"]
+        solution_prompt = prompts["solution_prompt"]
+        problem_description = prompts.get("problem_description", "")
+        solution_description = prompts.get("solution_description", "")
+    except Exception as e:
+        logger.error(f"[scenario] prompt generation failed: {e}", exc_info=True)
+        raise HTTPException(500, f"Failed to generate image prompts: {e}")
+
+    # Step 2 — Generate both images in parallel
+    img_model = req.image_model or "dall-e-2"
+    async def gen_image(image_prompt: str) -> str:
+        client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY, timeout=120.0)
+        # gpt-image-1 always returns b64_json; dall-e-2/3 support response_format param.
+        # We request b64_json for all models so the browser can render a data URI directly
+        # without hitting CORS / short-lived URL expiry issues.
+        gen_kwargs: dict = {"model": img_model, "prompt": image_prompt, "size": "1024x1024", "n": 1}
+        if img_model == "dall-e-3":
+            gen_kwargs["quality"] = "standard"          # dall-e-3: standard | hd
+            gen_kwargs["response_format"] = "b64_json"
+        elif img_model == "gpt-image-1":
+            gen_kwargs["quality"] = "auto"              # gpt-image-1: low | medium | high | auto
+            # gpt-image-1 returns b64_json by default; response_format param not accepted
+        # dall-e-2: response_format param no longer accepted — returns URL by default
+        resp = await client.images.generate(**gen_kwargs)  # type: ignore[arg-type]
+        b64 = resp.data[0].b64_json
+        if b64:
+            return f"data:image/png;base64,{b64}"
+        # URL response (dall-e-2 default)
+        return resp.data[0].url or ""
+
+    try:
+        problem_url, solution_url = await asyncio.gather(
+            gen_image(problem_prompt),
+            gen_image(solution_prompt),
+        )
+    except Exception as e:
+        logger.error(f"[scenario] image generation failed: {e}", exc_info=True)
+        raise HTTPException(500, f"Image generation failed: {e}")
+
     return {
-        "total_sessions": total,
-        "solve_count": solve_count,
-        "explore_count": explore_count,
-        "practice_count": practice_count,
-        "theory_count": theory_count,
-        "streak_days": streak,
-        "recent_sessions": [SessionOut.from_orm_safe(s) for s in recent],
-        "subjects_explored": list({s.subject.value if hasattr(s.subject, "value") else str(s.subject) for s in sessions}),
+        "topic": req.topic,
+        "problem_prompt": problem_prompt,
+        "problem_description": problem_description,
+        "problem_image_url": problem_url,
+        "solution_prompt": solution_prompt,
+        "solution_description": solution_description,
+        "solution_image_url": solution_url,
     }
 
 
-@router.get("/sessions/saved", response_model=List[SessionOut])
-async def get_saved_sessions(
-    limit: int = 50,
-    subject: Optional[str] = None,
+@router.get("/history", response_model=List[MathSessionOut])
+async def history(
+    limit: int = 20,
+    session_type: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
 ):
     q = select(MathSession).where(
-        MathSession.user_id == user.id,
+        MathSession.user_id == current_user.id
+    ).order_by(desc(MathSession.created_at)).limit(limit)
+
+    if session_type:
+        for st in SessionType:
+            if st.value == session_type:
+                q = q.where(MathSession.session_type == st)
+                break
+
+    result = await db.execute(q)
+    return [_session_out(r) for r in result.scalars().all()]
+
+
+@router.get("/saved", response_model=List[MathSessionOut])
+async def saved_sessions(
+    session_type: Optional[str] = None,
+    subject: Optional[str] = None,
+    limit: int = 100,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return all bookmarked sessions for the current user."""
+    q = select(MathSession).where(
+        MathSession.user_id == current_user.id,
         MathSession.is_saved == "true",
     ).order_by(desc(MathSession.created_at)).limit(limit)
+
+    if session_type:
+        for st in SessionType:
+            if st.value == session_type:
+                q = q.where(MathSession.session_type == st)
+                break
+
     if subject:
-        q = q.where(MathSession.subject == _safe_subject(subject))
+        for s in MathSubject:
+            if s.value == subject:
+                q = q.where(MathSession.subject == s)
+                break
+
     result = await db.execute(q)
-    return [SessionOut.from_orm_safe(s) for s in result.scalars().all()]
+    return [_session_out(r) for r in result.scalars().all()]
 
 
-@router.post("/sessions/{session_id}/save")
-async def save_session(
+@router.patch("/sessions/{session_id}", response_model=MathSessionOut)
+async def patch_session(
     session_id: str,
-    body: SaveTitleRequest,
+    req: PatchSessionRequest,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
 ):
+    """Save or unsave a session (bookmark it with an optional title)."""
     result = await db.execute(
-        select(MathSession).where(MathSession.id == session_id, MathSession.user_id == user.id)
+        select(MathSession).where(
+            MathSession.id == session_id,
+            MathSession.user_id == current_user.id,
+        )
     )
-    sess = result.scalar_one_or_none()
-    if not sess:
+    session = result.scalar_one_or_none()
+    if not session:
         raise HTTPException(404, "Session not found")
-    sess.is_saved = "true"
-    sess.saved_title = body.title
+    session.is_saved = req.is_saved
+    if req.saved_title is not None:
+        session.saved_title = req.saved_title
     await db.commit()
-    return {"ok": True}
+    await db.refresh(session)
+    return _session_out(session)
 
 
-@router.delete("/sessions/{session_id}/save")
-async def unsave_session(
-    session_id: str,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    result = await db.execute(
-        select(MathSession).where(MathSession.id == session_id, MathSession.user_id == user.id)
-    )
-    sess = result.scalar_one_or_none()
-    if not sess:
-        raise HTTPException(404, "Session not found")
-    sess.is_saved = "false"
-    sess.saved_title = None
-    await db.commit()
-    return {"ok": True}
-
-
-@router.delete("/sessions/{session_id}")
+@router.delete("/sessions/{session_id}", status_code=204)
 async def delete_session(
     session_id: str,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
 ):
+    """Permanently delete a session."""
     result = await db.execute(
-        select(MathSession).where(MathSession.id == session_id, MathSession.user_id == user.id)
+        select(MathSession).where(
+            MathSession.id == session_id,
+            MathSession.user_id == current_user.id,
+        )
     )
-    sess = result.scalar_one_or_none()
-    if not sess:
-        raise HTTPException(404, "Session not found")
-    await db.delete(sess)
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    await db.delete(session)
     await db.commit()
-    return {"ok": True}
 
 
-# ── Subjects & Parent summary ─────────────────────────────────────────────────
+@router.get("/progress", response_model=ProgressOut)
+async def progress(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from datetime import datetime, timedelta, timezone, date as date_type
 
-SUBJECTS_LIST = [
-    {"key": "arithmetic",   "label": "Arithmetic",   "color": "#f59e0b", "icon": "➕"},
-    {"key": "algebra",      "label": "Algebra",      "color": "#8b5cf6", "icon": "x²"},
-    {"key": "geometry",     "label": "Geometry",     "color": "#10b981", "icon": "△"},
-    {"key": "trigonometry", "label": "Trigonometry", "color": "#06b6d4", "icon": "sin"},
-    {"key": "precalculus",  "label": "Pre-Calculus", "color": "#f97316", "icon": "f(x)"},
-    {"key": "calculus",     "label": "Calculus",     "color": "#ec4899", "icon": "∫"},
-    {"key": "statistics",   "label": "Statistics",   "color": "#84cc16", "icon": "σ"},
-    {"key": "linear_algebra","label":"Linear Algebra","color": "#a78bfa", "icon": "[]"},
-    {"key": "differential_equations","label":"Diff. Equations","color":"#fb923c","icon":"dy/dx"},
-    {"key": "discrete_math","label": "Discrete Math","color": "#22d3ee", "icon": "{}"},
-    {"key": "number_theory","label": "Number Theory","color": "#f43f5e", "icon": "ℕ"},
-]
+    total = (await db.execute(
+        select(func.count(MathSession.id)).where(MathSession.user_id == current_user.id)
+    )).scalar() or 0
 
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    week_count = (await db.execute(
+        select(func.count(MathSession.id)).where(
+            MathSession.user_id == current_user.id,
+            MathSession.created_at >= week_ago,
+        )
+    )).scalar() or 0
 
-@router.get("/subjects")
-async def list_subjects():
-    return {"subjects": SUBJECTS_LIST}
+    # ── Streak calculation ──────────────────────────────────────────────────────
+    dates_q = await db.execute(
+        select(func.date(MathSession.created_at))
+        .where(MathSession.user_id == current_user.id)
+        .distinct()
+    )
+    session_dates = {row[0] for row in dates_q.fetchall()}
+    streak = 0
+    today = date_type.today()
+    # Start from today; if no session today, start from yesterday
+    check = today if today in session_dates else today - timedelta(days=1)
+    while check in session_dates:
+        streak += 1
+        check -= timedelta(days=1)
+
+    # ── Saved count ─────────────────────────────────────────────────────────────
+    saved_count = (await db.execute(
+        select(func.count(MathSession.id)).where(
+            MathSession.user_id == current_user.id,
+            MathSession.is_saved == "true",
+        )
+    )).scalar() or 0
+
+    # ── Recent sessions (10 for dashboard widget) ───────────────────────────────
+    recent_q = await db.execute(
+        select(MathSession).where(MathSession.user_id == current_user.id)
+        .order_by(desc(MathSession.created_at)).limit(10)
+    )
+    recent = [_session_out(r) for r in recent_q.scalars().all()]
+
+    # ── All sessions (50 for full history view) ──────────────────────────────────
+    all_q = await db.execute(
+        select(MathSession).where(MathSession.user_id == current_user.id)
+        .order_by(desc(MathSession.created_at)).limit(50)
+    )
+    all_sessions = [_session_out(r) for r in all_q.scalars().all()]
+
+    # ── Subjects ─────────────────────────────────────────────────────────────────
+    subj_q = await db.execute(
+        select(MathSession.subject).where(MathSession.user_id == current_user.id).distinct()
+    )
+    subjects = [r[0].value if r[0] else "other" for r in subj_q.fetchall()]
+
+    # ── Topic progress ────────────────────────────────────────────────────────────
+    tp_q = await db.execute(
+        select(UserTopicProgress).where(UserTopicProgress.user_id == current_user.id)
+        .order_by(desc(UserTopicProgress.problems_solved))
+    )
+    topic_progress = [
+        {
+            "subject": tp.subject,
+            "topic": tp.topic,
+            "problems_solved": tp.problems_solved,
+            "mastery_score": tp.mastery_score,
+            "last_practiced": tp.last_practiced.isoformat() if tp.last_practiced else "",
+        }
+        for tp in tp_q.scalars().all()
+    ]
+
+    return ProgressOut(
+        total_sessions=total,
+        sessions_this_week=week_count,
+        streak_days=streak,
+        saved_count=saved_count,
+        subjects_practiced=subjects,
+        recent_sessions=recent,
+        all_sessions=all_sessions,
+        topic_progress=topic_progress,
+    )
 
 
 @router.get("/parent-summary")
 async def parent_summary(
-    email: Optional[str] = None,
+    learner_email: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
 ):
-    result = await db.execute(
-        select(MathSession)
-        .where(MathSession.user_id == user.id)
-        .order_by(desc(MathSession.created_at))
-        .limit(100)
+    """
+    Return a child/student activity summary for parents and teachers.
+    If learner_email is provided (admin/teacher only), returns that user's data.
+    Otherwise returns the current user's data (useful for self-overview).
+    """
+    from datetime import timedelta, timezone, datetime as dt
+
+    target_user = current_user
+    if learner_email and current_user.role.value in ("admin", "teacher", "parent"):
+        result = await db.execute(select(User).where(User.email == learner_email))
+        found = result.scalar_one_or_none()
+        if found:
+            target_user = found
+
+    uid = target_user.id
+    now = dt.now(timezone.utc)
+
+    # Total + last 7 days
+    total = (await db.execute(
+        select(func.count(MathSession.id)).where(MathSession.user_id == uid)
+    )).scalar() or 0
+
+    week_count = (await db.execute(
+        select(func.count(MathSession.id)).where(
+            MathSession.user_id == uid,
+            MathSession.created_at >= now - timedelta(days=7),
+        )
+    )).scalar() or 0
+
+    # Subjects practiced
+    subj_q = await db.execute(
+        select(MathSession.subject, func.count(MathSession.id).label("cnt"))
+        .where(MathSession.user_id == uid)
+        .group_by(MathSession.subject)
+        .order_by(desc("cnt"))
     )
-    sessions = result.scalars().all()
-    subjects = {}
-    for s in sessions:
-        subj = s.subject.value if hasattr(s.subject, "value") else str(s.subject)
-        subjects[subj] = subjects.get(subj, 0) + 1
+    subject_counts = [{"subject": r[0].value if r[0] else "other", "count": r[1]} for r in subj_q.fetchall()]
+
+    # Recent 20 sessions
+    recent_q = await db.execute(
+        select(MathSession).where(MathSession.user_id == uid)
+        .order_by(desc(MathSession.created_at)).limit(20)
+    )
+    recent = [_session_out(r) for r in recent_q.scalars().all()]
+
+    # Daily activity — last 14 days
+    daily = []
+    for d in range(13, -1, -1):
+        day_start = (now - timedelta(days=d)).replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end   = day_start + timedelta(days=1)
+        cnt = (await db.execute(
+            select(func.count(MathSession.id)).where(
+                MathSession.user_id == uid,
+                MathSession.created_at >= day_start,
+                MathSession.created_at <  day_end,
+            )
+        )).scalar() or 0
+        daily.append({"date": day_start.strftime("%b %d"), "sessions": cnt})
+
     return {
-        "total_sessions": len(sessions),
-        "subjects_breakdown": subjects,
-        "streak_days": min(len(sessions), 7),
-        "recent": [SessionOut.from_orm_safe(s) for s in sessions[:5]],
+        "learner_name": target_user.full_name or target_user.email,
+        "learner_email": target_user.email,
+        "learner_level": target_user.level.value if hasattr(target_user.level, "value") else str(target_user.level),
+        "total_sessions": total,
+        "sessions_this_week": week_count,
+        "subject_breakdown": subject_counts,
+        "daily_activity": daily,
+        "recent_sessions": recent,
+        "member_since": target_user.created_at.isoformat() if target_user.created_at else "",
     }
 
 
-# ── Data analysis ─────────────────────────────────────────────────────────────
-
-@router.post("/data/fetch")
-async def data_fetch(
-    req: DataFetchRequest,
-    user: User = Depends(get_current_user),
-):
-    return {"source": req.source, "indicator": req.indicator, "data": [], "note": "Use /data/* endpoints directly."}
-
-
-@router.post("/data/analyze")
-async def data_analyze(
-    req: DataAnalyzeRequest,
-    user: User = Depends(get_current_user),
-):
-    data_summary = _json.dumps(req.data[:20], indent=2) if req.data else "[]"
-    system = "You are an expert data analyst and mathematics educator."
-    user_prompt = f"""Analyze this dataset and answer the question.
-
-INDICATOR: {req.indicator_name or req.indicator or 'Unknown'}
-LOCATION: {req.location or 'Unknown'}
-UNIT: {req.unit or 'Unknown'}
-QUESTION: {req.question or 'What are the key trends and insights?'}
-
-DATA (first 20 points):
-{data_summary}
-
-Provide: 1) Key trend analysis 2) Statistical summary 3) Mathematical interpretation 4) Practical insights.
-Use LaTeX for any mathematical expressions."""
-    text, _, _ = await call_ai(system, user_prompt, req.model_name, 1000)
-    return {"analysis": text, "model_used": req.model_name}
+@router.get("/subjects")
+async def list_subjects():
+    """Return the full mathematics curriculum structure."""
+    return {
+        "subjects": [
+            {"key": "arithmetic",    "label": "Arithmetic",               "icon": "Hash",       "color": "bg-sky-100 text-sky-700",      "topics": ["Number Systems", "Fractions", "Decimals", "Percentages", "Ratios", "Estimation"]},
+            {"key": "algebra",       "label": "Algebra",                  "icon": "Variable",   "color": "bg-blue-100 text-blue-700",    "topics": ["Linear Equations", "Quadratic Equations", "Polynomials", "Factoring", "Systems of Equations", "Inequalities", "Functions", "Exponentials", "Logarithms"]},
+            {"key": "geometry",      "label": "Geometry",                 "icon": "Triangle",   "color": "bg-violet-100 text-violet-700","topics": ["Triangles", "Circles", "Polygons", "Coordinate Geometry", "Transformations", "Proofs", "3D Geometry"]},
+            {"key": "trigonometry",  "label": "Trigonometry",             "icon": "Waves",      "color": "bg-indigo-100 text-indigo-700","topics": ["Unit Circle", "Trig Functions", "Identities", "Solving Trig Equations", "Inverse Functions", "Law of Sines/Cosines"]},
+            {"key": "precalculus",   "label": "Pre-Calculus",             "icon": "Activity",   "color": "bg-purple-100 text-purple-700","topics": ["Functions", "Polynomial Functions", "Rational Functions", "Exponential Functions", "Logarithmic Functions", "Sequences & Series"]},
+            {"key": "calculus",      "label": "Calculus",                 "icon": "TrendingUp", "color": "bg-emerald-100 text-emerald-700","topics": ["Limits", "Derivatives", "Differentiation Rules", "Applications of Derivatives", "Integrals", "Integration Techniques", "Applications of Integrals", "Multivariable Calculus"]},
+            {"key": "statistics",    "label": "Statistics & Probability", "icon": "BarChart2",  "color": "bg-amber-100 text-amber-700",  "topics": ["Descriptive Statistics", "Probability", "Distributions", "Hypothesis Testing", "Regression", "Confidence Intervals"]},
+            {"key": "linear_algebra","label": "Linear Algebra",           "icon": "Grid",       "color": "bg-rose-100 text-rose-700",    "topics": ["Vectors", "Matrices", "Determinants", "Systems of Linear Equations", "Eigenvalues", "Vector Spaces", "Linear Transformations"]},
+            {"key": "differential_equations","label": "Differential Equations","icon": "Sigma", "color": "bg-teal-100 text-teal-700",   "topics": ["First-Order ODEs", "Second-Order ODEs", "Systems of ODEs", "Laplace Transforms", "Series Solutions", "Partial Differential Equations"]},
+            {"key": "discrete_math", "label": "Discrete Mathematics",     "icon": "Network",    "color": "bg-orange-100 text-orange-700","topics": ["Logic", "Set Theory", "Combinatorics", "Graph Theory", "Number Theory", "Proofs", "Algorithms"]},
+        ]
+    }

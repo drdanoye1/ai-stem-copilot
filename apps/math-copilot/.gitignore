@@ -1,2 +1,3 @@
 .vercel
-*
+*.tsbuildinfo
+tsconfig.tsbuildinfo
