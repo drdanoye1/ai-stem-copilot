@@ -5,7 +5,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v
 const api = axios.create({
   baseURL: API_BASE,
   headers: { "Content-Type": "application/json" },
-  timeout: 15_000,
+  timeout: 120_000,   // 2 min — AI model calls can take 30-60s
 });
 
 // Attach JWT from localStorage
@@ -473,6 +473,4 @@ export const projectsApi = {
   submit: (projectId: string, studentWork: string, modelName?: string) =>
     api.post<ProjectFeedback>(`/math/projects/${projectId}/submit`, {
       work_text: studentWork,
-      model_name: modelName ?? "gpt-4o",
-    }),
-};
+     
