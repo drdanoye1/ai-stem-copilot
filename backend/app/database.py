@@ -4,10 +4,19 @@ from sqlalchemy.orm import DeclarativeBase
 
 from app.config import settings
 
-# Strip SSL query params — let asyncpg handle SSL via connect_args only
+# Strip SSL/auth query params — handled via connect_args instead
 _db_url = settings.DATABASE_URL
-for _param in ("?sslmode=require", "?sslmode=prefer", "?ssl=require", "?ssl=true",
-               "&sslmode=require", "&ssl=require"):
+for _param in (
+    "?sslmode=require&channel_binding=require",   # Neon direct: strip both together first
+    "?sslmode=require",
+    "?sslmode=prefer",
+    "?ssl=require",
+    "?ssl=true",
+    "&sslmode=require",
+    "&ssl=require",
+    "&channel_binding=require",
+    "?channel_binding=require",
+):
     _db_url = _db_url.replace(_param, "")
 
 # Normalise scheme for asyncpg
@@ -17,15 +26,10 @@ elif _db_url.startswith("postgresql://"):
     _db_url = _db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 # already postgresql+asyncpg:// — leave as-is
 
-# SSL connect_args
 _connect_args: dict = {}
 
-if "railway.internal" in _db_url or "rlwy.net" in _db_url:
-    # asyncpg 0.29.0 no longer falls back from SSL when server sends 'N'.
-    # Must pass ssl=False explicitly to skip SSLRequest entirely.
-    _connect_args = {"ssl": False}
-
-elif "neon.tech" in _db_url:
+if "neon.tech" in _db_url:
+    # Neon requires SSL; CERT_NONE skips hostname/cert verification (asyncpg compatible)
     _ssl_ctx = _ssl.create_default_context()
     _ssl_ctx.check_hostname = False
     _ssl_ctx.verify_mode = _ssl.CERT_NONE

@@ -7,75 +7,247 @@
 
 @layer base {
   :root {
-    --brand-gradient: linear-gradient(135deg, #4338ca 0%, #7c3aed 100%);
-    --sidebar-bg: #1e1b4b;
-    --sidebar-hover: #312e81;
-    --sidebar-active: #4338ca;
+    /* Background layers */
+    --bg-base:      #05060f;
+    --bg-surface:   rgba(255,255,255,0.04);
+    --bg-elevated:  rgba(255,255,255,0.07);
+    --bg-overlay:   rgba(255,255,255,0.10);
+
+    /* Borders */
+    --border-subtle: rgba(255,255,255,0.07);
+    --border-medium: rgba(255,255,255,0.12);
+    --border-bright: rgba(255,255,255,0.20);
+
+    /* Accent colors */
+    --cyan:         #22d3ee;
+    --cyan-dim:     rgba(34,211,238,0.12);
+    --cyan-glow:    0 0 24px rgba(34,211,238,0.20);
+    --violet:       #a78bfa;
+    --violet-dim:   rgba(167,139,250,0.12);
+    --gold:         #fbbf24;
+    --gold-dim:     rgba(251,191,36,0.12);
+    --emerald:      #34d399;
+
+    /* Text */
+    --text-primary:   #f1f5f9;
+    --text-secondary: #94a3b8;
+    --text-muted:     #475569;
+
+    /* Brand gradient (button, active states) */
+    --brand-gradient: linear-gradient(135deg, #06b6d4 0%, #818cf8 100%);
+
+    /* Sidebar */
+    --sidebar-bg:     #07081a;
+    --sidebar-border: rgba(99,102,241,0.15);
+
+    /* Legacy vars kept for compat */
+    --sidebar-hover:  rgba(255,255,255,0.06);
+    --sidebar-active: rgba(34,211,238,0.15);
   }
 
   * { box-sizing: border-box; }
 
+  html { color-scheme: dark; }
+
   body {
-    @apply bg-gray-50 text-gray-900 antialiased;
+    background: var(--bg-base);
+    color: var(--text-primary);
     font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+    @apply antialiased;
   }
 
-  /* Smooth scrollbar */
-  ::-webkit-scrollbar { width: 6px; }
+  /* Subtle mesh gradient behind body */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(ellipse 80% 50% at 20% -10%, rgba(99,102,241,0.08) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 40% at 80% 110%, rgba(34,211,238,0.06) 0%, transparent 60%);
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: #c7d2fe; border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: #a5b4fc; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
 }
 
 @layer components {
-  /* Math output container */
-  .math-output {
-    @apply text-gray-800 leading-relaxed;
+
+  /* ── Glass card ────────────────────────────────────────── */
+  .glass {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
   }
-  .math-output h1 { @apply text-2xl font-bold text-brand-800 mt-6 mb-3 pb-2 border-b border-brand-100; }
-  .math-output h2 { @apply text-xl font-bold text-brand-700 mt-5 mb-2; }
-  .math-output h3 { @apply text-base font-semibold text-brand-600 mt-4 mb-1.5; }
-  .math-output h4 { @apply text-sm font-semibold text-gray-700 mt-3 mb-1; }
+  .glass-elevated {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-medium);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+
+  /* ── Math output ───────────────────────────────────────── */
+  .math-output {
+    color: #cbd5e1; /* slate-300 */
+    line-height: 1.75;
+  }
+  .math-output h1 {
+    @apply text-2xl font-bold mt-6 mb-3 pb-2;
+    color: #f1f5f9;
+    border-bottom: 1px solid rgba(34,211,238,0.20);
+  }
+  .math-output h2 {
+    @apply text-xl font-bold mt-6 mb-2;
+    color: #22d3ee; /* cyan */
+  }
+  .math-output h3 {
+    @apply text-base font-semibold mt-4 mb-1.5;
+    color: #a78bfa; /* violet */
+  }
+  .math-output h4 {
+    @apply text-sm font-semibold mt-3 mb-1;
+    color: #94a3b8;
+  }
   .math-output p  { @apply mb-3 leading-7; }
   .math-output ul { @apply list-disc pl-5 mb-3 space-y-1; }
   .math-output ol { @apply list-decimal pl-5 mb-3 space-y-1; }
-  .math-output li { @apply text-gray-700 leading-6; }
-  .math-output strong { @apply font-semibold text-gray-900; }
-  .math-output em { @apply italic; }
-  .math-output hr { @apply border-t border-brand-100 my-4; }
+  .math-output li { color: #cbd5e1; @apply leading-6; }
+  .math-output strong { @apply font-semibold; color: #f1f5f9; }
+  .math-output em { @apply italic; color: #94a3b8; }
+  .math-output hr { border-color: rgba(255,255,255,0.08); @apply my-5; }
   .math-output blockquote {
-    @apply border-l-4 border-brand-300 pl-4 italic text-gray-600 bg-brand-50 py-2 rounded-r-lg my-3;
+    @apply border-l-4 pl-4 italic py-2 rounded-r-lg my-3;
+    border-color: var(--violet);
+    background: rgba(167,139,250,0.07);
+    color: #94a3b8;
   }
   .math-output code {
-    @apply bg-gray-100 text-brand-700 px-1.5 py-0.5 rounded text-sm font-mono;
+    background: rgba(34,211,238,0.10);
+    color: #22d3ee;
+    @apply px-1.5 py-0.5 rounded text-sm font-mono;
   }
   .math-output pre {
-    @apply bg-gray-900 text-gray-100 p-4 rounded-xl overflow-x-auto mb-3 text-sm;
+    @apply p-4 rounded-xl overflow-x-auto mb-3 text-sm;
+    background: rgba(0,0,0,0.50);
+    border: 1px solid rgba(255,255,255,0.08);
+    color: #e2e8f0;
   }
-  .math-output table {
-    @apply w-full border-collapse mb-4 text-sm;
+  .math-output table { @apply w-full border-collapse mb-4 text-sm; }
+  .math-output thead tr {
+    background: rgba(34,211,238,0.12);
+    color: #22d3ee;
   }
-  .math-output thead tr { @apply bg-brand-700 text-white; }
-  .math-output thead th { @apply px-4 py-2.5 text-left font-semibold; }
-  .math-output tbody td { @apply px-4 py-2 border border-gray-200; }
-  .math-output tbody tr:nth-child(even) { @apply bg-brand-50; }
-  /* KaTeX display math */
-  .math-output .katex-display {
-    @apply my-4 overflow-x-auto;
+  .math-output thead th {
+    @apply px-4 py-2.5 text-left font-semibold;
+    border-bottom: 1px solid rgba(34,211,238,0.25);
   }
-
-  /* Details/summary for practice answers */
-  .math-output details { @apply my-2; }
+  .math-output tbody td {
+    @apply px-4 py-2;
+    border: 1px solid rgba(255,255,255,0.06);
+    color: #cbd5e1;
+  }
+  .math-output tbody tr:nth-child(even) { background: rgba(255,255,255,0.025); }
+  .math-output .katex-display { @apply my-5 overflow-x-auto; }
+  .math-output .katex { color: #e2e8f0; }
+  .math-output details { @apply my-3; }
   .math-output summary {
-    @apply cursor-pointer text-brand-600 font-medium text-sm hover:text-brand-800 select-none;
+    @apply cursor-pointer font-medium text-sm select-none;
+    color: #22d3ee;
   }
+  .math-output summary:hover { color: #67e8f9; }
 
-  /* Sidebar nav */
+  /* ── Sidebar nav link ──────────────────────────────────── */
   .sidebar-link {
-    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all;
-    @apply text-indigo-200 hover:text-white hover:bg-indigo-700/60;
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150;
+    color: #64748b;
+  }
+  .sidebar-link:hover {
+    color: #f1f5f9;
+    background: rgba(255,255,255,0.06);
   }
   .sidebar-link.active {
-    @apply bg-brand-600 text-white shadow-sm;
+    color: #22d3ee;
+    background: rgba(34,211,238,0.10);
+    border: 1px solid rgba(34,211,238,0.18);
+    box-shadow: 0 0 16px rgba(34,211,238,0.08);
+  }
+
+  /* ── Btn primary ───────────────────────────────────────── */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all duration-200;
+    background: var(--brand-gradient);
+    color: white;
+    box-shadow: 0 0 20px rgba(34,211,238,0.20);
+  }
+  .btn-primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 24px rgba(34,211,238,0.30);
+  }
+  .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  /* ── Input ─────────────────────────────────────────────── */
+  .input-dark {
+    @apply w-full rounded-xl px-4 py-2.5 text-sm transition-all duration-150;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.09);
+    color: var(--text-primary);
+  }
+  .input-dark::placeholder { color: #475569; }
+  .input-dark:focus {
+    outline: none;
+    border-color: rgba(34,211,238,0.40);
+    box-shadow: 0 0 0 3px rgba(34,211,238,0.08);
+  }
+  .input-dark option {
+    background: #0f1022;
+    color: #f1f5f9;
+  }
+
+  /* ── Stat card ─────────────────────────────────────────── */
+  .stat-card {
+    @apply rounded-2xl p-5 relative overflow-hidden;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+  }
+
+  /* ── Tag / badge ───────────────────────────────────────── */
+  .tag {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  /* ── Mobile overrides (<768px) ─────────────────────────── */
+  @media (max-width: 767px) {
+    /* Ensure page containers don't overflow */
+    .math-output table {
+      display: block;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .math-output pre {
+      overflow-x: auto;
+      max-width: 100%;
+    }
+
+    /* Increase tap target for interactive elements */
+    .sidebar-link {
+      @apply py-3;
+    }
+    .btn-primary {
+      @apply py-3 text-sm;
+      min-height: 44px;
+    }
+    .input-dark {
+      @apply py-3;
+      min-height: 44px;
+      font-size: 16px; /* prevent iOS zoom on focus */
+    }
+
+    /* Prevent horizontal scroll on page bodies */
+    body { overflow-x: hidden; }
   }
 }

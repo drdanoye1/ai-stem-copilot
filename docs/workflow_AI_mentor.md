@@ -1,0 +1,2 @@
+# How the AI Maths mentor works: 
+User picks a topic (or one of 8 starters) + subject/level. The AI opens with a question and never gives a direct answer — after 6–10 turns it detects genuine understanding and emits [COMPLETE], triggering the celebration card

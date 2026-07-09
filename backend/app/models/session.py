@@ -10,6 +10,7 @@ class SessionType(str, enum.Enum):
     solve    = "solve"     # AI Math Solver
     explore  = "explore"   # Topic Explorer
     practice = "practice"  # Practice Generator
+    theory   = "theory"    # Theory Intelligence™ — derivations, proofs, theorems
 
 
 class MathSubject(str, enum.Enum):

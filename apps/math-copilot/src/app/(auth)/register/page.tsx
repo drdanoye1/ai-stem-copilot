@@ -1,12 +1,17 @@
 "use client";
-import { useState } from "react";
+import { useState, lazy, Suspense } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth";
 import { authApi } from "@/lib/api";
 import { Loader2 } from "lucide-react";
+import { GoogleSignInButton } from "@/components/GoogleSignInButton";
+
+// alias so the JSX below reads cleanly
+const GoogleSignInButtonLazy = GoogleSignInButton;
 
 const LEVELS = [
+  { value: "pre_k",         label: "Pre-K / Kindergarten (ages 3–6)" },
   { value: "middle_school", label: "Middle School (ages 11–14)" },
   { value: "high_school",   label: "High School (ages 14–18)" },
   { value: "ap_ib",         label: "AP / IB Advanced" },
@@ -18,7 +23,7 @@ const LEVELS = [
 export default function RegisterPage() {
   const router = useRouter();
   const { setAuth } = useAuthStore();
-  const [form, setForm] = useState({ full_name: "", email: "", password: "", level: "high_school" });
+  const [form, setForm] = useState({ full_name: "", email: "", password: "", level: "middle_school" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -98,10 +103,12 @@ export default function RegisterPage() {
             </button>
           </form>
 
-          <p className="text-center text-sm text-gray-500 mt-6">
+          <div className="text-center text-sm mt-6" style={{ color: "#475569" }}>
             Already have an account?{" "}
-            <Link href="/login" className="text-brand-600 font-medium hover:underline">Sign in</Link>
-          </p>
+            <Link href="/login" className="font-semibold hover:underline" style={{ color: "#22d3ee" }}>
+              Sign in
+            </Link>
+          </div>
         </div>
       </div>
     </div>

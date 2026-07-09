@@ -14,6 +14,7 @@ class UserRole(str, enum.Enum):
 
 
 class EducationLevel(str, enum.Enum):
+    pre_k          = "pre_k"           # Ages 3–6 (Pre-K / Kindergarten)
     middle_school  = "middle_school"
     high_school    = "high_school"
     ap_ib          = "ap_ib"

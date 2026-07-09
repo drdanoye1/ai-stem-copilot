@@ -1,193 +1,505 @@
 "use client";
 import Link from "next/link";
+import { useState, useEffect } from "react";
+import {
+  Calculator, BookOpen, PenLine, TrendingUp, GraduationCap,
+  BarChart3, FlaskConical, Globe, Microscope, BrainCircuit,
+  Layers, ArrowRight, Sparkles, Zap, Check, Database,
+  ChevronRight, Star, Scan, Mail, MessageSquare,
+} from "lucide-react";
+
+// ── Data ─────────────────────────────────────────────────────────────────────
 
 const FEATURES = [
   {
-    icon: "⚡",
+    icon: Calculator,
+    color: "#22d3ee",
     title: "AI Math Solver",
-    desc: "Type any problem — from basic algebra to graduate-level calculus. Get a complete, step-by-step solution with every working shown.",
+    desc: "Type any problem — from basic algebra to graduate calculus. Get a complete, step-by-step solution with every working shown.",
   },
   {
-    icon: "📐",
-    title: "Beautiful LaTeX Rendering",
-    desc: "Every equation is rendered beautifully using LaTeX notation, exactly as you'd see in a textbook or academic paper.",
+    icon: GraduationCap,
+    color: "#fbbf24",
+    title: "Theory Lesson Generator",
+    desc: "Rigorous lessons with historical context, formal proofs, derivations, and worked examples — generated in seconds.",
   },
   {
-    icon: "🧭",
+    icon: BookOpen,
+    color: "#a78bfa",
     title: "Topic Explorer",
-    desc: "Deep-dive into any mathematical concept. Get theory, worked examples, visual intuitions, and practice problems — all in one place.",
+    desc: "Deep-dive into any concept. AI explains theory, generates examples, and adapts to your curriculum and level.",
   },
   {
-    icon: "🎯",
-    title: "Practice Generator",
-    desc: "Generate unlimited practice problems at your exact level and topic. Every problem comes with a full worked solution.",
+    icon: PenLine,
+    color: "#34d399",
+    title: "Practice Problems",
+    desc: "Generate unlimited problems at your exact level. Every question comes with a full worked solution.",
   },
   {
-    icon: "📈",
+    icon: BarChart3,
+    color: "#22d3ee",
+    title: "Visualization Engine",
+    desc: "Function graphs, 3D surfaces, statistical charts, and GeoGebra geometry — auto-generated from AI responses.",
+  },
+  {
+    icon: FlaskConical,
+    color: "#34d399",
+    title: "Simulation Engine",
+    desc: "Interactive sliders bring differential equations and physics models to life. Adjust parameters and watch math move.",
+  },
+  {
+    icon: Microscope,
+    color: "#10b981",
+    title: "Virtual Math Lab™",
+    desc: "20 curated lab experiments across Mechanics, Calculus, Statistics, Waves, and Engineering — with guided objectives.",
+  },
+  {
+    icon: BrainCircuit,
+    color: "#a855f7",
+    title: "AI Mentor",
+    desc: "Conversational tutor that explains concepts step by step, draws SVG diagrams, and adapts to your questions.",
+  },
+  {
+    icon: Database,
+    color: "#06b6d4",
+    title: "Data Explorer",
+    desc: "Live economic, climate, health, and satellite data from 5 global sources — World Bank, IMF, NASA, WHO, and more.",
+  },
+  {
+    icon: Globe,
+    color: "#818cf8",
+    title: "Real-World Applications",
+    desc: "See how every topic applies in engineering, finance, medicine, and science — with live formula evaluation.",
+  },
+  {
+    icon: Layers,
+    color: "#f59e0b",
+    title: "Digital Twin Sandbox™",
+    desc: "Build living mathematical models of real-world systems. Connect live data and run what-if simulations.",
+  },
+  {
+    icon: TrendingUp,
+    color: "#f97316",
     title: "Progress Tracking",
-    desc: "Track which topics you've mastered, how many problems you've solved, and where to focus next.",
-  },
-  {
-    icon: "🤖",
-    title: "Multiple AI Models",
-    desc: "Choose between GPT-4o, Claude Sonnet, and more. Each model brings different strengths to mathematical reasoning.",
+    desc: "Track sessions, streaks, topics mastered, and time spent. See exactly where to focus next.",
   },
 ];
 
 const SUBJECTS = [
-  { label: "Arithmetic",             emoji: "🔢" },
-  { label: "Algebra",                emoji: "𝑥" },
-  { label: "Geometry",               emoji: "📐" },
-  { label: "Trigonometry",           emoji: "〜" },
-  { label: "Pre-Calculus",           emoji: "∫" },
-  { label: "Calculus",               emoji: "∂" },
-  { label: "Statistics",             emoji: "📊" },
-  { label: "Linear Algebra",         emoji: "⊞" },
-  { label: "Differential Equations", emoji: "Δ" },
-  { label: "Discrete Mathematics",   emoji: "⊂" },
+  "Pre-K Counting", "Early Arithmetic", "Arithmetic", "Algebra", "Geometry",
+  "Trigonometry", "Pre-Calculus", "Calculus", "Statistics", "Linear Algebra",
+  "Differential Equations", "Discrete Mathematics", "Number Theory", "Probability",
 ];
 
 const DEMO_PROBLEMS = [
-  { subject: "Calculus",      problem: "Find d/dx [x³ · sin(x)]" },
-  { subject: "Algebra",       problem: "Solve 3x² − 7x + 2 = 0" },
-  { subject: "Linear Algebra", problem: "Find the eigenvalues of A = [[2,1],[1,2]]" },
-  { subject: "Statistics",    problem: "Find the 95% confidence interval for μ, n=50, x̄=72, σ=8" },
+  { subject: "Pre-K",         color: "#4ade80", problem: "Count the apples: 🍎🍎🍎 — how many?" },
+  { subject: "Calculus",      color: "#22d3ee", problem: "Find d/dx [x³ · sin(x)]" },
+  { subject: "Algebra",       color: "#a78bfa", problem: "Solve 3x² − 7x + 2 = 0" },
+  { subject: "Linear Algebra", color: "#34d399", problem: "Eigenvalues of A = [[2,1],[1,2]]" },
+  { subject: "Statistics",    color: "#fbbf24", problem: "95% CI for μ, n=50, x̄=72, σ=8" },
+  { subject: "Number Theory", color: "#f43f5e", problem: "Prove there are ∞ prime numbers" },
 ];
 
-export default function LandingPage() {
+const PLANS = [
+  {
+    label: "Free",
+    price: "$0",
+    accent: "#64748b",
+    features: ["AI Math Solver", "Topic Explorer", "Practice Problems", "Visualization Engine", "Basic AI Mentor"],
+    cta: "Start for free",
+    href: "/register",
+    highlight: false,
+  },
+  {
+    label: "Pro",
+    price: "$29",
+    accent: "#22d3ee",
+    features: ["Everything in Free", "Virtual Math Lab™ — 20 labs", "Digital Twin Sandbox™", "AR / VR Lab", "All 5 data sources", "Unlimited AI Mentor", "Export to Word / PDF"],
+    cta: "Upgrade to Pro",
+    href: "/register",
+    highlight: true,
+  },
+  {
+    label: "Enterprise",
+    price: "Custom",
+    accent: "#a78bfa",
+    features: ["Everything in Pro", "Team workspace", "SSO & custom domain", "API access", "LMS integration", "24/7 SLA support"],
+    cta: "Contact sales",
+    href: "mailto:enterprise@aimathcopilot.com",
+    highlight: false,
+  },
+];
+
+const STATS = [
+  { value: "7",   label: "Learner levels — Pre-K to Graduate" },
+  { value: "12+", label: "Intelligence modules" },
+  { value: "20+", label: "Virtual lab experiments" },
+  { value: "∞",   label: "Practice problems" },
+];
+
+// ── Animated counter ───────────────────────────────────────────────────────────
+
+function FloatingOrb({ style }: { style: React.CSSProperties }) {
   return (
-    <div className="min-h-screen bg-white">
-      {/* ── Navigation ── */}
-      <nav className="sticky top-0 z-50 bg-white/90 backdrop-blur border-b border-gray-100">
-        <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">∑</span>
-            <span className="font-bold text-brand-700 text-lg">AI Mathematics Copilot™</span>
+    <div className="absolute rounded-full pointer-events-none" style={{ filter: "blur(80px)", ...style }} />
+  );
+}
+
+// ── Contact / Feedback section ────────────────────────────────────────────────
+
+const FORM_ENDPOINT = "https://formspree.io/f/mzdllpgw";
+
+type FormTab = "feedback" | "sales";
+
+function ContactSection() {
+  const [tab, setTab] = useState<FormTab>("feedback");
+  const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setStatus("sending");
+    const form = e.currentTarget;
+    const data = new FormData(form);
+    try {
+      const res = await fetch(FORM_ENDPOINT, {
+        method: "POST",
+        body: data,
+        headers: { Accept: "application/json" },
+      });
+      if (res.ok) {
+        setStatus("sent");
+        form.reset();
+      } else {
+        setStatus("error");
+      }
+    } catch {
+      setStatus("error");
+    }
+  };
+
+  const isSales = tab === "sales";
+  const accent = isSales ? "#a78bfa" : "#22d3ee";
+
+  return (
+    <section className="py-24 px-6 relative overflow-hidden" id="contact"
+      style={{ borderTop: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.01)" }}>
+      <FloatingOrb style={{ width: 500, height: 400, top: "40%", right: "-10%", background: "rgba(167,139,250,0.05)" }} />
+      <FloatingOrb style={{ width: 400, height: 400, top: "10%", left: "-8%", background: "rgba(34,211,238,0.04)" }} />
+
+      <div className="max-w-5xl mx-auto relative grid md:grid-cols-2 gap-14 items-start">
+
+        {/* Left — copy */}
+        <div>
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-6"
+            style={{ background: "rgba(34,211,238,0.08)", border: "1px solid rgba(34,211,238,0.20)" }}>
+            <Mail className="w-3.5 h-3.5" style={{ color: "#22d3ee" }} />
+            <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "#22d3ee" }}>
+              Get in touch
+            </span>
           </div>
-          <div className="flex items-center gap-3">
-            <Link href="/login"
-              className="text-sm text-gray-600 hover:text-brand-700 font-medium transition-colors">
-              Sign in
-            </Link>
-            <Link href="/register"
-              className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-brand-700 transition-colors">
-              Get started free
-            </Link>
+          <h2 className="text-3xl sm:text-4xl font-bold mb-5 leading-tight" style={{ color: "#f1f5f9" }}>
+            We&apos;d love to<br />
+            <span style={{
+              background: "linear-gradient(135deg, #22d3ee 0%, #a78bfa 100%)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              backgroundClip: "text",
+            }}>hear from you</span>
+          </h2>
+          <p className="text-base leading-relaxed mb-8" style={{ color: "#475569", maxWidth: "360px" }}>
+            Share ideas, report issues, or talk to us about Pro and Enterprise plans. Every message is read by the team.
+          </p>
+
+          {/* Contact options */}
+          <div className="space-y-4">
+            {[
+              {
+                icon: MessageSquare,
+                color: "#22d3ee",
+                label: "Send feedback",
+                desc: "Suggest features, report bugs, or share what you love",
+                onClick: () => setTab("feedback"),
+              },
+              {
+                icon: Zap,
+                color: "#a78bfa",
+                label: "Sales & Enterprise",
+                desc: "Custom pricing, team licenses, and private deployment",
+                onClick: () => setTab("sales"),
+              },
+            ].map(({ icon: Icon, color, label, desc, onClick }) => (
+              <button key={label} onClick={onClick}
+                className="w-full flex items-start gap-4 p-4 rounded-2xl text-left transition-all"
+                style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}
+                onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = color + "44"}
+                onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = "rgba(255,255,255,0.07)"}>
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                  style={{ background: color + "18", border: `1px solid ${color}30` }}>
+                  <Icon className="w-4 h-4" style={{ color }} />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold mb-0.5" style={{ color: "#e2e8f0" }}>{label}</p>
+                  <p className="text-xs" style={{ color: "#475569" }}>{desc}</p>
+                </div>
+              </button>
+            ))}
           </div>
+        </div>
+
+        {/* Right — contact form */}
+        <div className="rounded-2xl p-7" style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.07)" }}>
+          {/* Tab picker */}
+          <div className="flex gap-2 mb-6">
+            {(["feedback", "sales"] as FormTab[]).map(t => (
+              <button key={t} onClick={() => setTab(t)}
+                className="px-4 py-2 rounded-lg text-xs font-semibold transition-all"
+                style={{
+                  background: tab === t ? accent + "20" : "transparent",
+                  border: `1px solid ${tab === t ? accent + "50" : "rgba(255,255,255,0.06)"}`,
+                  color: tab === t ? accent : "#475569",
+                }}>
+                {t === "feedback" ? "💬 Feedback" : "⚡ Sales & Enterprise"}
+              </button>
+            ))}
+          </div>
+
+          {status === "sent" ? (
+            <div className="text-center py-10">
+              <div className="text-3xl mb-3">🎉</div>
+              <div className="text-sm font-semibold" style={{ color: "#f1f5f9" }}>Message received!</div>
+              <div className="text-xs mt-1" style={{ color: "#475569" }}>We&apos;ll get back to you soon.</div>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {isSales && (
+                <div>
+                  <label className="block text-[11px] font-semibold mb-1.5 uppercase tracking-wider" style={{ color: "#475569" }}>Company</label>
+                  <input name="company" placeholder="Acme Corp" className="input-dark w-full text-sm py-2.5" />
+                </div>
+              )}
+              <div>
+                <label className="block text-[11px] font-semibold mb-1.5 uppercase tracking-wider" style={{ color: "#475569" }}>Name</label>
+                <input name="name" required placeholder="Your name" className="input-dark w-full text-sm py-2.5" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold mb-1.5 uppercase tracking-wider" style={{ color: "#475569" }}>Email</label>
+                <input name="email" type="email" required placeholder="you@email.com" className="input-dark w-full text-sm py-2.5" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold mb-1.5 uppercase tracking-wider" style={{ color: "#475569" }}>
+                  {isSales ? "Tell us about your use case" : "Message"}
+                </label>
+                <textarea name="message" required rows={4} placeholder={isSales ? "Team size, use case, timeline…" : "Share your thoughts…"}
+                  className="input-dark w-full text-sm py-2.5 resize-none" />
+              </div>
+              <input type="hidden" name="type" value={tab} />
+              <button type="submit" disabled={status === "sending"}
+                className="w-full py-3 rounded-xl text-sm font-bold transition-all disabled:opacity-50"
+                style={{ background: accent, color: "#0f172a" }}>
+                {status === "sending" ? "Sending…" : isSales ? "Talk to Sales" : "Send Feedback"}
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ── Main landing page ──────────────────────────────────────────────────────────
+
+export default function HomePage() {
+  const [activeDemo, setActiveDemo] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setActiveDemo(p => (p + 1) % DEMO_PROBLEMS.length), 3000);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <div className="min-h-screen" style={{ background: "var(--bg-base, #0b0f1a)", color: "#f1f5f9" }}>
+      {/* Nav */}
+      <nav className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-xl flex items-center justify-center text-lg font-bold"
+            style={{ background: "linear-gradient(135deg,#22d3ee,#a78bfa)", boxShadow: "0 0 16px rgba(34,211,238,0.35)" }}>
+            ∑
+          </div>
+          <span className="font-bold text-sm" style={{ color: "#f8fafc" }}>AI Mathematics Copilot™</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <Link href="/login" className="text-xs px-4 py-2 rounded-lg font-medium" style={{ color: "#94a3b8" }}>Sign in</Link>
+          <Link href="/register" className="text-xs px-4 py-2 rounded-lg font-semibold"
+            style={{ background: "linear-gradient(135deg,#22d3ee,#a78bfa)", color: "#0f172a" }}>
+            Get started free
+          </Link>
         </div>
       </nav>
 
-      {/* ── Hero ── */}
-      <section className="relative overflow-hidden pt-20 pb-28 px-6">
-        {/* Background gradient */}
-        <div className="absolute inset-0 bg-gradient-to-br from-brand-50 via-white to-violet-50 -z-10" />
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-brand-600/5 rounded-full blur-3xl -z-10" />
-
-        <div className="max-w-4xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 bg-brand-50 text-brand-700 text-xs font-semibold px-3 py-1.5 rounded-full border border-brand-100 mb-6">
-            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-            AI Mathematics Copilot™ — MVP Preview
+      {/* Hero */}
+      <section className="py-24 px-6 text-center relative overflow-hidden">
+        <FloatingOrb style={{ width: 600, height: 600, top: "-10%", left: "50%", transform: "translateX(-50%)", background: "rgba(34,211,238,0.06)" }} />
+        <div className="relative max-w-4xl mx-auto">
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full mb-8 text-xs font-semibold"
+            style={{ background: "rgba(34,211,238,0.08)", border: "1px solid rgba(34,211,238,0.20)", color: "#22d3ee" }}>
+            <Sparkles className="w-3.5 h-3.5" /> AI-powered math learning — Pre-K through PhD
           </div>
-
-          <h1 className="text-5xl sm:text-6xl font-extrabold text-gray-900 leading-tight mb-6">
-            Your personal{" "}
-            <span className="bg-clip-text text-transparent" style={{ backgroundImage: "var(--brand-gradient)" }}>
-              AI mathematics
-            </span>{" "}
-            tutor
+          <h1 className="text-5xl sm:text-7xl font-bold mb-6 leading-tight tracking-tight">
+            Master <span style={{ background: "linear-gradient(135deg,#22d3ee 0%,#a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
+              any math
+            </span><br />at any level
           </h1>
-
-          <p className="text-xl text-gray-500 mb-10 max-w-2xl mx-auto leading-relaxed">
-            Solve any problem step-by-step. Explore any concept in depth.
-            Generate unlimited practice problems. Master mathematics at your own pace.
+          <p className="text-lg mb-10 max-w-xl mx-auto" style={{ color: "#64748b" }}>
+            From counting apples to graduate-level topology. AI that teaches, explains, visualises, and adapts — all in one place.
           </p>
-
-          <div className="flex flex-col sm:flex-row gap-3 justify-center mb-14">
-            <Link href="/register"
-              className="px-8 py-4 text-white font-bold rounded-xl text-base shadow-lg hover:shadow-xl transition-all hover:-translate-y-0.5"
-              style={{ background: "var(--brand-gradient)" }}>
-              Start solving for free →
+          <div className="flex items-center justify-center gap-3 flex-wrap">
+            <Link href="/register" className="px-7 py-3 rounded-xl font-bold text-sm flex items-center gap-2"
+              style={{ background: "linear-gradient(135deg,#22d3ee,#a78bfa)", color: "#0f172a" }}>
+              Start learning free <ArrowRight className="w-4 h-4" />
             </Link>
-            <Link href="/login"
-              className="px-8 py-4 text-brand-700 font-bold rounded-xl text-base border-2 border-brand-200 hover:border-brand-400 transition-colors bg-white">
-              Sign in
+            <Link href="/pricing" className="px-7 py-3 rounded-xl font-semibold text-sm"
+              style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.10)", color: "#94a3b8" }}>
+              View pricing
             </Link>
           </div>
+        </div>
 
-          {/* Demo problem cards */}
-          <div className="grid sm:grid-cols-2 gap-3 max-w-2xl mx-auto">
-            {DEMO_PROBLEMS.map((d, i) => (
-              <div key={i} className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 text-left hover:border-brand-200 transition-colors">
-                <div className="text-xs text-brand-600 font-semibold mb-1">{d.subject}</div>
-                <div className="text-sm font-mono text-gray-700">{d.problem}</div>
+        {/* Stats */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 max-w-3xl mx-auto mt-20">
+          {STATS.map(s => (
+            <div key={s.label} className="rounded-2xl py-5" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+              <div className="text-3xl font-bold mb-1" style={{ background: "linear-gradient(135deg,#22d3ee,#a78bfa)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
+                {s.value}
               </div>
+              <div className="text-xs" style={{ color: "#475569" }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Demo carousel */}
+        <div className="mt-16 max-w-lg mx-auto rounded-2xl p-5 text-left"
+          style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+          <div className="text-[10px] font-bold uppercase tracking-widest mb-3" style={{ color: "#334155" }}>Try an example</div>
+          {DEMO_PROBLEMS.map((p, i) => (
+            <div key={i} onClick={() => setActiveDemo(i)} className="cursor-pointer"
+              style={{ display: i === activeDemo ? "block" : "none" }}>
+              <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{ color: p.color }}>{p.subject}</div>
+              <div className="text-sm font-mono" style={{ color: "#e2e8f0" }}>{p.problem}</div>
+            </div>
+          ))}
+          <div className="flex gap-1.5 mt-3">
+            {DEMO_PROBLEMS.map((_, i) => (
+              <button key={i} onClick={() => setActiveDemo(i)}
+                className="w-1.5 h-1.5 rounded-full transition-all"
+                style={{ background: i === activeDemo ? "#22d3ee" : "rgba(255,255,255,0.15)" }} />
             ))}
           </div>
         </div>
       </section>
 
-      {/* ── Subjects ── */}
-      <section className="py-16 px-6 bg-gray-50 border-y border-gray-100">
+      {/* Subjects */}
+      <section className="py-10 px-6" style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+        <div className="max-w-5xl mx-auto flex flex-wrap gap-2 justify-center">
+          {SUBJECTS.map(s => (
+            <span key={s} className="text-xs px-3 py-1.5 rounded-full font-medium"
+              style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#64748b" }}>
+              {s}
+            </span>
+          ))}
+        </div>
+      </section>
+
+      {/* Features */}
+      <section className="py-24 px-6" style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
         <div className="max-w-5xl mx-auto">
-          <p className="text-center text-sm font-semibold text-gray-400 uppercase tracking-widest mb-6">
-            Covers all major mathematics subjects
-          </p>
-          <div className="flex flex-wrap justify-center gap-2.5">
-            {SUBJECTS.map((s) => (
-              <span key={s.label}
-                className="flex items-center gap-1.5 bg-white border border-gray-200 text-gray-700 text-sm px-3.5 py-1.5 rounded-full shadow-sm font-medium">
-                <span className="text-base">{s.emoji}</span>
-                {s.label}
-              </span>
-            ))}
+          <div className="text-center mb-14">
+            <h2 className="text-3xl sm:text-4xl font-bold mb-3" style={{ color: "#f1f5f9" }}>Everything you need to excel</h2>
+            <p className="text-sm" style={{ color: "#475569" }}>Twelve intelligence modules — all included.</p>
           </div>
-        </div>
-      </section>
-
-      {/* ── Features ── */}
-      <section className="py-24 px-6">
-        <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">
-              Everything you need to master mathematics
-            </h2>
-            <p className="text-lg text-gray-500 max-w-xl mx-auto">
-              From middle school arithmetic to graduate-level mathematics, AI Mathematics Copilot™ adapts to your level.
-            </p>
-          </div>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {FEATURES.map((f, i) => (
-              <div key={i} className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm hover:shadow-md hover:border-brand-100 transition-all">
-                <div className="text-3xl mb-4">{f.icon}</div>
-                <h3 className="font-bold text-gray-900 mb-2">{f.title}</h3>
-                <p className="text-sm text-gray-500 leading-relaxed">{f.desc}</p>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {FEATURES.map(f => (
+              <div key={f.title} className="rounded-2xl p-6"
+                style={{ background: "rgba(255,255,255,0.025)", border: `1px solid ${f.color}18` }}>
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center mb-4"
+                  style={{ background: f.color + "15", border: `1px solid ${f.color}25` }}>
+                  <f.icon className="w-4.5 h-4.5" style={{ color: f.color }} />
+                </div>
+                <div className="font-semibold text-sm mb-1.5" style={{ color: "#f1f5f9" }}>{f.title}</div>
+                <div className="text-xs leading-relaxed" style={{ color: "#475569" }}>{f.desc}</div>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ── CTA ── */}
-      <section className="py-20 px-6 text-white text-center" style={{ background: "var(--brand-gradient)" }}>
-        <div className="max-w-2xl mx-auto">
-          <h2 className="text-3xl sm:text-4xl font-bold mb-4">
-            Ready to transform how you learn mathematics?
-          </h2>
-          <p className="text-indigo-200 mb-8 text-lg">
-            Join students, teachers, and professionals using AI Mathematics Copilot™.
-          </p>
-          <Link href="/register"
-            className="inline-block bg-white text-brand-700 font-bold px-8 py-4 rounded-xl text-base shadow-lg hover:shadow-xl transition-all hover:-translate-y-0.5">
-            Get started free →
-          </Link>
+      {/* Pricing preview */}
+      <section className="py-24 px-6" style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+        <div className="max-w-4xl mx-auto">
+          <div className="text-center mb-14">
+            <h2 className="text-3xl sm:text-4xl font-bold mb-3" style={{ color: "#f1f5f9" }}>Simple, transparent pricing</h2>
+            <p className="text-sm" style={{ color: "#475569" }}>Start free. Upgrade when you&apos;re ready.</p>
+          </div>
+          <div className="grid sm:grid-cols-3 gap-5">
+            {PLANS.map(p => (
+              <div key={p.label} className="rounded-2xl p-6 flex flex-col"
+                style={{
+                  background: p.highlight ? `linear-gradient(135deg, ${p.accent}12, rgba(255,255,255,0.02))` : "rgba(255,255,255,0.025)",
+                  border: `1px solid ${p.highlight ? p.accent + "35" : "rgba(255,255,255,0.07)"}`,
+                }}>
+                {p.highlight && (
+                  <div className="text-[10px] font-bold uppercase tracking-widest mb-3 px-2.5 py-1 rounded-full self-start"
+                    style={{ background: p.accent + "20", color: p.accent, border: `1px solid ${p.accent}30` }}>
+                    Most popular
+                  </div>
+                )}
+                <div className="font-bold text-sm mb-0.5" style={{ color: p.accent }}>{p.label}</div>
+                <div className="text-3xl font-bold mb-5" style={{ color: "#f1f5f9" }}>{p.price}<span className="text-sm font-normal text-slate-500">{p.price !== "Custom" ? "/mo" : ""}</span></div>
+                <ul className="space-y-2.5 flex-1 mb-6">
+                  {p.features.map(f => (
+                    <li key={f} className="flex items-start gap-2 text-xs" style={{ color: "#64748b" }}>
+                      <Check className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" style={{ color: p.accent }} />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+                <Link href={p.href} className="text-center py-2.5 rounded-xl text-xs font-bold"
+                  style={{
+                    background: p.highlight ? p.accent : "rgba(255,255,255,0.06)",
+                    color: p.highlight ? "#0f172a" : "#94a3b8",
+                    border: p.highlight ? "none" : "1px solid rgba(255,255,255,0.08)",
+                  }}>
+                  {p.cta}
+                </Link>
+              </div>
+            ))}
+          </div>
+          <div className="text-center mt-8">
+            <Link href="/pricing" className="text-xs font-semibold" style={{ color: "#22d3ee" }}>
+              See full feature comparison <ChevronRight className="inline w-3.5 h-3.5" />
+            </Link>
+          </div>
         </div>
       </section>
 
-      {/* ── Footer ── */}
-      <footer className="bg-white border-t border-gray-100 py-8 px-6 text-center text-sm text-gray-400">
-        <span className="font-semibold text-gray-600">AI Mathematics Copilot™</span>
-        {" "}— Part of the AI STEM Copilot™ platform family.
-        {" "}AI-generated content requires verification before professional use.
+      {/* Contact */}
+      <ContactSection />
+
+      {/* Footer */}
+      <footer className="py-12 px-6 text-center border-t" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
+        <div className="flex items-center justify-center gap-2 mb-4">
+          <div className="w-7 h-7 rounded-xl flex items-center justify-center text-lg font-bold"
+            style={{ background: "linear-gradient(135deg,#22d3ee,#a78bfa)", boxShadow: "0 0 16px rgba(34,211,238,0.25)" }}>
+            ∑
+          </div>
+          <span className="text-sm font-bold" style={{ color: "#94a3b8" }}>AI Mathematics Copilot™</span>
+        </div>
+        <p className="text-xs" style={{ color: "#475569" }}>
+          Built for learners at every level — Pre-K through PhD.
+        </p>
+        <div className="flex items-center justify-center gap-6 mt-6">
+          <Link href="/login"    className="text-xs hover:underline" style={{ color: "#334155" }}>Sign in</Link>
+          <Link href="/register" className="text-xs hover:underline" style={{ color: "#334155" }}>Register</Link>
+          <Link href="/pricing"  className="text-xs hover:underline" style={{ color: "#334155" }}>Pricing</Link>
+        </div>
       </footer>
     </div>
   );
