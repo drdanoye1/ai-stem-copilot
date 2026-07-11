@@ -194,9 +194,11 @@ export interface ScenarioResponse {
   topic: string;
   problem_prompt: string;
   problem_description: string;
+  problem_equations?: string[];
   problem_image_url: string;
   solution_prompt: string;
   solution_description: string;
+  solution_equations?: string[];
   solution_image_url: string;
 }
 

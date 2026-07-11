@@ -739,11 +739,20 @@ Generate a compelling two-part scenario that shows how this mathematics solves a
 
 Return ONLY a JSON object, no markdown fences, no explanation:
 {{
-  "problem_prompt": "Short scene-setting title (5-8 words, e.g. \'Bridge Cable Snaps Under Ice Load\')",
+  "problem_prompt": "Short scene-setting title (5-8 words, e.g. 'Bridge Cable Snaps Under Ice Load')",
   "problem_description": "3-5 sentence vivid narrative of the real-world problem or failure. Describe the physical situation, the consequences, and exactly WHY mathematics is needed to resolve it. Use concrete numbers, measurements, and technical details appropriate for {level} level.",
-  "solution_prompt": "Short outcome title (5-8 words, e.g. \'Structural Redesign Prevents Catastrophic Collapse\')",
-  "solution_description": "3-5 sentence narrative of how the mathematics solves the problem. Describe the key equations or concepts applied, the quantitative result achieved, and the real-world impact. Make the mathematical connection explicit and inspiring."
-}}"""
+  "problem_equations": ["key governing equation for the problem in valid LaTeX", "second relevant equation or constraint in LaTeX (omit if only one applies)"],
+  "solution_prompt": "Short outcome title (5-8 words, e.g. 'Structural Redesign Prevents Catastrophic Collapse')",
+  "solution_description": "3-5 sentence narrative of how the mathematics solves the problem. Describe the key equations or concepts applied, the quantitative result achieved, and the real-world impact. Make the mathematical connection explicit and inspiring.",
+  "solution_equations": ["primary mathematical solution or formula applied in valid LaTeX", "quantitative result or verification equation in LaTeX (omit if only one applies)"]
+}}
+
+Rules for equations:
+- Write valid LaTeX using standard notation: \\frac{{a}}{{b}}, \\int_0^t, \\sum_{{i=1}}^n, subscripts x_0, superscripts e^{{-t}}.
+- 1-2 equations per side that directly model the {topic} problem and solution.
+- Symbols must be mathematically correct — no invented constants.
+- Do NOT wrap the entire equation in \\text{{}}.
+- Each equation is a plain LaTeX string (no $$, no \\[, no \\begin{{equation}})."""
 
 
 class PatchSessionRequest(BaseModel):
@@ -1393,8 +1402,10 @@ async def scenario(
         data = _parse_json_response(raw)
         problem_prompt      = data.get("problem_prompt", "")
         problem_description = data.get("problem_description", "")
+        problem_equations   = data.get("problem_equations", [])
         solution_prompt     = data.get("solution_prompt", "")
         solution_description = data.get("solution_description", "")
+        solution_equations  = data.get("solution_equations", [])
     except Exception as e:
         logger.error("[scenario] text generation failed: %s", e, exc_info=True)
         raise _ai_http_error("scenario", e)
@@ -1458,9 +1469,11 @@ async def scenario(
         "topic": req.topic,
         "problem_prompt": problem_prompt,
         "problem_description": problem_description,
+        "problem_equations": problem_equations if isinstance(problem_equations, list) else [],
         "problem_image_url": f"data:image/png;base64,{problem_b64}" if problem_b64 else "",
         "solution_prompt": solution_prompt,
         "solution_description": solution_description,
+        "solution_equations": solution_equations if isinstance(solution_equations, list) else [],
         "solution_image_url": f"data:image/png;base64,{solution_b64}" if solution_b64 else "",
     }
 

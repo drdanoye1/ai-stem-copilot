@@ -7,6 +7,7 @@ import {
   CheckCircle2, BookOpen, FlaskConical, ZoomIn,
 } from "lucide-react";
 import { ModelSelector, useModel } from "@/components/ModelSelector";
+import katex from "katex";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -108,10 +109,20 @@ function ScenarioSkeleton() {
   );
 }
 
+function renderEquation(latex: string, accent: string) {
+  try {
+    const html = katex.renderToString(latex.trim(), { throwOnError: false, displayMode: true });
+    return html;
+  } catch {
+    return `<span style="font-family:monospace;font-size:0.8em">${latex}</span>`;
+  }
+}
+
 function ScenarioCard({
-  imageUrl, title, subtitle, description, accent, icon: Icon, footerLabel,
+  imageUrl, title, subtitle, description, equations, accent, icon: Icon, footerLabel,
 }: {
   imageUrl: string; title: string; subtitle: string; description: string;
+  equations?: string[];
   accent: string; icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   footerLabel: string;
 }) {
@@ -154,8 +165,30 @@ function ScenarioCard({
         )}
 
         {/* Description */}
-        <div className="p-5 flex-1">
+        <div className="p-5 flex-1 space-y-4">
           <p className="text-sm leading-relaxed" style={{ color: "#cbd5e1" }}>{description}</p>
+
+          {/* Equations */}
+          {equations && equations.length > 0 && (
+            <div className="rounded-xl overflow-hidden"
+              style={{ background: `${accent}07`, border: `1px solid ${accent}20` }}>
+              <div className="px-3 py-1.5"
+                style={{ borderBottom: `1px solid ${accent}15`, background: `${accent}10` }}>
+                <span className="text-[9px] font-bold uppercase tracking-widest" style={{ color: accent }}>
+                  Mathematical Equations
+                </span>
+              </div>
+              <div className="px-4 py-3 space-y-3">
+                {equations.map((eq, i) => (
+                  <div key={i}
+                    className="overflow-x-auto py-1"
+                    style={{ color: "#e2e8f0" }}
+                    dangerouslySetInnerHTML={{ __html: renderEquation(eq, accent) }}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -350,6 +383,7 @@ export default function ScenarioPage() {
               title="The Problem"
               subtitle={result.problem_prompt}
               description={result.problem_description}
+              equations={result.problem_equations}
               accent="#f87171"
               icon={AlertTriangle}
               footerLabel="Real-world failure scenario"
@@ -359,6 +393,7 @@ export default function ScenarioPage() {
               title="The Solution"
               subtitle={result.solution_prompt}
               description={result.solution_description}
+              equations={result.solution_equations}
               accent="#34d399"
               icon={CheckCircle2}
               footerLabel="Mathematics in action"
