@@ -480,6 +480,14 @@ export default function MentorPage() {
         <TurnBadge count={session.turn_count} />
       </div>
 
+      {/* Error display */}
+      {error && (
+        <div className="flex-shrink-0 rounded-xl px-4 py-3 text-xs"
+          style={{ background: "rgba(244,63,94,0.10)", border: "1px solid rgba(244,63,94,0.25)", color: "#f87171" }}>
+          {error}
+        </div>
+      )}
+
       {/* Chat area */}
       <div className="flex-1 overflow-y-auto space-y-4 min-h-0 py-2 pr-1">
         {/* How to use banner */}
@@ -504,10 +512,18 @@ export default function MentorPage() {
           </div>
         )}
 
+        {session.is_complete && (
+          <CompletionCard
+            insight={session.completion_insight ?? "You reached the end of this Socratic session — great work!"}
+            onNew={reset}
+          />
+        )}
+
         <div ref={chatEndRef} />
       </div>
 
-      {/* Input */}
+      {/* Input — hidden when session is complete */}
+      {!session.is_complete && (
       <form onSubmit={e => { e.preventDefault(); sendResponse(); }} className="flex gap-3 mt-4 flex-shrink-0">
         <textarea
           ref={inputRef}
@@ -532,6 +548,7 @@ export default function MentorPage() {
           <Send className="w-4 h-4" />
         </button>
       </form>
+      )}
     </div>
   );
 }

@@ -21,6 +21,44 @@ from app.config import settings
 
 logger = logging.getLogger("uvicorn.error")
 
+
+def _ai_http_error(endpoint: str, exc: Exception) -> HTTPException:
+    """Convert raw AI-provider exceptions into sanitised HTTP responses.
+
+    The real error is logged server-side only — users never see API keys,
+    quota details, model names, or provider internals.
+    """
+    logger.error("[%s] AI provider error — %s: %s", endpoint, type(exc).__name__, exc, exc_info=True)
+    msg = str(exc).lower()
+
+    # Rate-limit / quota (OpenAI 429, Anthropic 429, Gemini quota)
+    if any(k in msg for k in ("rate limit", "quota", "insufficient_quota", "ratelimit", "429")):
+        return HTTPException(
+            status_code=503,
+            detail={"code": "SERVICE_BUSY", "message": "The AI service is temporarily busy. Please try again in a few moments."},
+        )
+
+    # Auth / key problems
+    if any(k in msg for k in ("authentication", "api key", "unauthorized", "invalid_api_key", "401")):
+        return HTTPException(
+            status_code=503,
+            detail={"code": "SERVICE_UNAVAILABLE", "message": "AI service is temporarily unavailable. Please try again later."},
+        )
+
+    # Model not found / invalid model
+    if any(k in msg for k in ("model", "does not exist", "invalid_value", "not found")):
+        return HTTPException(
+            status_code=503,
+            detail={"code": "SERVICE_UNAVAILABLE", "message": "AI service is temporarily unavailable. Please try again later."},
+        )
+
+    # Generic fallback
+    return HTTPException(
+        status_code=500,
+        detail={"code": "AI_ERROR", "message": "Something went wrong while processing your request. Please try again."},
+    )
+
+
 # ── Graceful AI imports ───────────────────────────────────────────────────────
 
 try:
@@ -389,7 +427,8 @@ Return ONLY valid JSON (no markdown, no code fences):
       "math_connection": "Exactly how {topic} is applied to solve it — mention the specific formula or method used.",
       "formula": "Key formula in LaTeX (empty string if not applicable)",
       "example": "A concrete example with real numbers: e.g. 'A bridge spanning 200m with load X kg/m² requires...'",
-      "careers": ["Job Title 1", "Job Title 2", "Job Title 3"]
+      "careers": ["Job Title 1", "Job Title 2", "Job Title 3"],
+      "image_prompt": "Photorealistic scene of this application in action — describe the physical setting, equipment, people, and activity in 1-2 sentences. No text, no formulas, no diagrams. Professional photography."
     }}
   ]
 }}
@@ -478,21 +517,28 @@ TOPIC (optional): {topic}
 EDUCATION LEVEL: {level}
 CURRICULUM STANDARD: {curriculum}
 
-Format each problem as:
+CRITICAL FORMATTING RULES:
+- Use $...$ for inline math (e.g. $x^2 + 1$)
+- Use $$...$$ on its own line for display/block math (e.g. $$\\int x^2\\,dx$$)
+- NEVER use square brackets [ ] around math expressions
+- NEVER use \\[...\\] notation — use $$...$$ only
+- Do NOT output HTML tags like <details> or <summary>
+
+Format each problem exactly as shown below (replace angle-bracket placeholders with real content):
 
 ---
 ### Problem {n}
-[Problem statement using LaTeX]
 
-**Hint:** [Optional hint — only include if difficulty is Hard or Expert]
+<Write the problem statement here. Use $...$ for inline math and $$...$$ for display math.>
 
-<details>
-<summary>Show Solution</summary>
+**Hint:** <Optional hint — only include if difficulty is Hard or Expert. Omit this line otherwise.>
 
-[Complete step-by-step solution using LaTeX]
+**▶ Show Solution**
 
-**Answer:** $[final answer]$
-</details>
+<Write the complete step-by-step solution here. Use $...$ for inline math and $$...$$ for display math.>
+
+**Answer:** $<final answer>$
+
 ---
 
 Problems should vary in style and approach. Ensure all {count} problems are distinct."""
@@ -661,6 +707,7 @@ class ApplicationsRequest(BaseModel):
     level: str = "high_school"
     curriculum: str = "general"
     model_name: str = "gpt-4o"
+    image_model: str = "gpt-image-1"
 
 
 class ReformulateRequest(BaseModel):
@@ -678,33 +725,24 @@ class ScenarioRequest(BaseModel):
     level: str = "high_school"
     curriculum: str = "general"
     model_name: str = "gpt-4o"
-    image_model: str = "dall-e-3"   # dall-e-2 | dall-e-3 | gpt-image-1
+    image_model: str = "gpt-image-1"   # gpt-image-1 | dall-e-3
 
 
-SCENARIO_PROMPT = """You are an expert educational prompt engineer specialising in DALL-E 3 image generation.
+SCENARIO_PROMPT = """You are an expert mathematics educator creating immersive real-world scenarios.
 
 Topic: {topic}
 Subject: {subject}
 Level: {level}
 Curriculum: {curriculum}
 
-Generate two highly specific, photorealistic DALL-E 3 image prompts that illustrate this mathematical or engineering topic:
-
-PROBLEM IMAGE — a real-world scene showing the physical problem, failure, challenge, or phenomenon that this mathematics addresses.
-SOLUTION IMAGE — a real-world scene showing the successfully engineered or resolved outcome, demonstrating the mathematics at work.
-
-Rules for each prompt:
-- Be extremely specific: describe the exact object, setting, material, scale, lighting, and camera angle
-- Photorealistic documentary-style photograph — no diagrams, no overlaid text, no cartoons
-- Include context clues that make the before/after narrative clear
-- 1–2 sentences maximum per prompt
+Generate a compelling two-part scenario that shows how this mathematics solves a real engineering or scientific problem.
 
 Return ONLY a JSON object, no markdown fences, no explanation:
 {{
-  "problem_prompt": "...",
-  "problem_description": "One sentence explaining what this image represents as the problem.",
-  "solution_prompt": "...",
-  "solution_description": "One sentence explaining what this image represents as the solution."
+  "problem_prompt": "Short scene-setting title (5-8 words, e.g. \'Bridge Cable Snaps Under Ice Load\')",
+  "problem_description": "3-5 sentence vivid narrative of the real-world problem or failure. Describe the physical situation, the consequences, and exactly WHY mathematics is needed to resolve it. Use concrete numbers, measurements, and technical details appropriate for {level} level.",
+  "solution_prompt": "Short outcome title (5-8 words, e.g. \'Structural Redesign Prevents Catastrophic Collapse\')",
+  "solution_description": "3-5 sentence narrative of how the mathematics solves the problem. Describe the key equations or concepts applied, the quantitative result achieved, and the real-world impact. Make the mathematical connection explicit and inspiring."
 }}"""
 
 
@@ -777,8 +815,16 @@ async def call_gemini(system: str, prompt: str, model: str, max_tokens: int) -> 
 async def dispatch(system: str, prompt: str, model: str, max_tokens: int) -> tuple[str, int, int]:
     provider = MODEL_PROVIDER_MAP.get(model, "openai")
     if provider == "google":
+        google_key = getattr(settings, "GOOGLE_API_KEY", "") or ""
+        if not google_key or not GEMINI_AVAILABLE:
+            logger.warning("[dispatch] GOOGLE_API_KEY not set — falling back to gpt-4o for model %s", model)
+            return await call_openai(system, prompt, "gpt-4o", max_tokens)
         return await call_gemini(system, prompt, model, max_tokens)
     if provider == "anthropic":
+        anthropic_key = getattr(settings, "ANTHROPIC_API_KEY", "") or ""
+        if not anthropic_key or not ANTHROPIC_AVAILABLE:
+            logger.warning("[dispatch] ANTHROPIC_API_KEY not set — falling back to gpt-4o for model %s", model)
+            return await call_openai(system, prompt, "gpt-4o", max_tokens)
         return await call_anthropic(system, prompt, model, max_tokens)
     return await call_openai(system, prompt, model, max_tokens)
 
@@ -842,7 +888,7 @@ async def solve(
         output, prompt_tok, completion_tok = await dispatch(SOLVE_SYSTEM, prompt, req.model_name, max_tokens)
     except Exception as e:
         logger.error(f"[solve] {type(e).__name__}: {e}", exc_info=True)
-        raise HTTPException(500, f"AI solver error [{type(e).__name__}]: {str(e)[:300]}")
+        raise _ai_http_error("solve", e)
 
     duration = int(time.time() * 1000) - start_ms
 
@@ -914,7 +960,7 @@ async def explore(
     try:
         output, prompt_tok, completion_tok = await dispatch(EXPLORE_SYSTEM, prompt, req.model_name, max_tokens)
     except Exception as e:
-        raise HTTPException(500, f"AI explorer error: {str(e)[:200]}")
+        raise _ai_http_error("explore", e)
 
     duration = int(time.time() * 1000) - start_ms
     output, viz_hint = _extract_viz_hint(output)
@@ -968,7 +1014,7 @@ async def practice(
     try:
         output, prompt_tok, completion_tok = await dispatch(PRACTICE_SYSTEM, prompt, req.model_name, max_tokens)
     except Exception as e:
-        raise HTTPException(500, f"AI practice error: {str(e)[:200]}")
+        raise _ai_http_error("practice", e)
 
     duration = int(time.time() * 1000) - start_ms
 
@@ -1028,7 +1074,7 @@ async def theory(
         output, prompt_tok, completion_tok = await dispatch(THEORY_SYSTEM, prompt, req.model_name, max_tokens)
     except Exception as e:
         logger.error(f"[theory] {type(e).__name__}: {e}", exc_info=True)
-        raise HTTPException(500, f"AI theory error [{type(e).__name__}]: {str(e)[:300]}")
+        raise _ai_http_error("theory", e)
 
     duration = int(time.time() * 1000) - start_ms
     output, viz_hint = _extract_viz_hint(output)
@@ -1188,7 +1234,8 @@ async def applications(
     req: ApplicationsRequest,
     current_user: User = Depends(get_current_user),
 ):
-    """Applications Intelligence™ — real-world applications and career connections for a topic."""
+    """Applications Intelligence™ — real-world applications + gpt-image-1 images for each."""
+    import asyncio
     curriculum_ctx = CURRICULUM_CONTEXT.get(req.curriculum, CURRICULUM_CONTEXT["general"])
     prompt = APPLICATIONS_PROMPT.format(
         topic=req.topic,
@@ -1216,9 +1263,68 @@ async def applications(
                     "formula": "",
                     "example": "See your textbook for concrete examples.",
                     "careers": ["Engineer", "Scientist", "Analyst"],
+                    "image_prompt": f"Photorealistic engineering lab with engineers working on {req.topic} applications",
                 }
             ],
         }
+
+    # Generate one photorealistic image per application (parallel)
+    img_model = req.image_model or "gpt-image-1"
+    app_list = result.get("applications", [])
+
+    async def gen_app_image(image_prompt: str, label: str = "") -> str:
+        """Return data URI or empty string on failure."""
+        try:
+            client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY, timeout=60.0)
+            if img_model == "gpt-image-1":
+                resp = await client.images.generate(
+                    model="gpt-image-1",
+                    prompt=image_prompt,
+                    size="1024x1024",
+                    n=1,
+                )
+            else:
+                resp = await client.images.generate(
+                    model=img_model,
+                    prompt=image_prompt,
+                    size="1024x1024",
+                    quality="standard",
+                    n=1,
+                    response_format="b64_json",
+                )
+            b64 = resp.data[0].b64_json
+            if b64:
+                logger.info("[applications] image OK for %s (%d chars)", label, len(b64))
+                return f"data:image/png;base64,{b64}"
+            url = resp.data[0].url or ""
+            if url:
+                import httpx, base64 as _b64
+                async with httpx.AsyncClient(timeout=20.0) as hc:
+                    img_bytes = (await hc.get(url)).content
+                return f"data:image/png;base64,{_b64.b64encode(img_bytes).decode()}"
+            return ""
+        except Exception as img_err:
+            logger.warning("[applications] image failed for %s: %s: %s",
+                           label, type(img_err).__name__, img_err)
+            return ""
+
+    if OPENAI_AVAILABLE and getattr(settings, "OPENAI_API_KEY", ""):
+        image_urls = await asyncio.gather(*[
+            gen_app_image(
+                app.get("image_prompt", f"Photorealistic professional scene: {app.get('title', 'engineering application')}"),
+                app.get("title", f"app_{i}"),
+            )
+            for i, app in enumerate(app_list)
+        ])
+        for app, url in zip(app_list, image_urls):
+            app["image_url"] = url
+            app.pop("image_prompt", None)   # don't expose raw prompt to frontend
+    else:
+        for app in app_list:
+            app["image_url"] = ""
+            app.pop("image_prompt", None)
+
+    result["applications"] = app_list
     return result
 
 
@@ -1264,7 +1370,7 @@ async def scenario(
     req: ScenarioRequest,
     current_user: User = Depends(get_current_user),
 ):
-    """Scenario Intelligence™ — generate two photorealistic DALL-E 3 images: problem + solution."""
+    """Scenario Intelligence™ — rich text scenario + gpt-image-1 images (b64_json)."""
     import asyncio
 
     if not OPENAI_AVAILABLE or not getattr(settings, "OPENAI_API_KEY", ""):
@@ -1278,60 +1384,84 @@ async def scenario(
         curriculum=curriculum_ctx,
     )
 
-    # Step 1 — LLM generates precise DALL-E prompts
+    # Step 1 — LLM generates scenario text + image prompts
     try:
         raw, _, _ = await dispatch(
             "You are a JSON generator. Return only valid JSON with no markdown fences.",
-            prompt, req.model_name, 600,
+            prompt, req.model_name, 800,
         )
-        prompts = _parse_json_response(raw)
-        problem_prompt = prompts["problem_prompt"]
-        solution_prompt = prompts["solution_prompt"]
-        problem_description = prompts.get("problem_description", "")
-        solution_description = prompts.get("solution_description", "")
+        data = _parse_json_response(raw)
+        problem_prompt      = data.get("problem_prompt", "")
+        problem_description = data.get("problem_description", "")
+        solution_prompt     = data.get("solution_prompt", "")
+        solution_description = data.get("solution_description", "")
     except Exception as e:
-        logger.error(f"[scenario] prompt generation failed: {e}", exc_info=True)
-        raise HTTPException(500, f"Failed to generate image prompts: {e}")
+        logger.error("[scenario] text generation failed: %s", e, exc_info=True)
+        raise _ai_http_error("scenario", e)
 
-    # Step 2 — Generate both images in parallel
-    img_model = req.image_model or "dall-e-3"
-    async def gen_image(image_prompt: str) -> str:
-        client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY, timeout=120.0)
-        # gpt-image-1 always returns b64_json; dall-e-2/3 support response_format param.
-        # We request b64_json for all models so the browser can render a data URI directly
-        # without hitting CORS / short-lived URL expiry issues.
-        gen_kwargs: dict = {"model": img_model, "prompt": image_prompt, "size": "1024x1024", "n": 1}
-        if img_model == "dall-e-3":
-            gen_kwargs["quality"] = "standard"          # dall-e-3: standard | hd
-            gen_kwargs["response_format"] = "b64_json"
-        elif img_model == "gpt-image-1":
-            gen_kwargs["quality"] = "auto"              # gpt-image-1: low | medium | high | auto
-            # gpt-image-1 returns b64_json by default; response_format param not accepted
-        # dall-e-2: response_format param no longer accepted — returns URL by default
-        resp = await client.images.generate(**gen_kwargs)  # type: ignore[arg-type]
-        b64 = resp.data[0].b64_json
-        if b64:
-            return f"data:image/png;base64,{b64}"
-        # URL response (dall-e-2 default)
-        return resp.data[0].url or ""
+    # Step 2 — Generate images; gpt-image-1 always returns b64, dall-e-3 needs response_format
+    img_model = req.image_model or "gpt-image-1"
 
-    try:
-        problem_url, solution_url = await asyncio.gather(
-            gen_image(problem_prompt),
-            gen_image(solution_prompt),
-        )
-    except Exception as e:
-        logger.error(f"[scenario] image generation failed: {e}", exc_info=True)
-        raise HTTPException(500, f"Image generation failed: {e}")
+    async def gen_image_b64(image_prompt: str, label: str = "") -> str:
+        """Returns base64-encoded PNG string, or empty string on any failure."""
+        try:
+            client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY, timeout=120.0)
+            if img_model == "gpt-image-1":
+                # gpt-image-1 does NOT accept response_format; returns b64_json by default
+                resp = await client.images.generate(
+                    model="gpt-image-1",
+                    prompt=image_prompt,
+                    size="1024x1024",
+                    n=1,
+                )
+            else:
+                # dall-e-2 / dall-e-3 support response_format
+                resp = await client.images.generate(
+                    model=img_model,
+                    prompt=image_prompt,
+                    size="1024x1024",
+                    quality="standard",
+                    n=1,
+                    response_format="b64_json",
+                )
+            b64 = resp.data[0].b64_json
+            if b64:
+                logger.info("[scenario] %s image OK (%d chars)", label or img_model, len(b64))
+                return b64
+            # Some variants return a URL instead — fetch and base64-encode it
+            import httpx, base64 as _b64
+            url = resp.data[0].url or ""
+            if url:
+                async with httpx.AsyncClient(timeout=30.0) as hc:
+                    img_bytes = (await hc.get(url)).content
+                logger.info("[scenario] %s image fetched from URL (%d bytes)", label or img_model, len(img_bytes))
+                return _b64.b64encode(img_bytes).decode()
+            logger.error("[scenario] %s: response had neither b64_json nor url", label or img_model)
+            return ""
+        except Exception as img_err:
+            logger.error("[scenario] %s image generation FAILED: %s: %s",
+                         label or img_model, type(img_err).__name__, img_err, exc_info=True)
+            return ""
+
+    problem_b64, solution_b64 = await asyncio.gather(
+        gen_image_b64(problem_prompt,  "problem"),
+        gen_image_b64(solution_prompt, "solution"),
+    )
+    if problem_b64 or solution_b64:
+        logger.info("[scenario] images ready — problem=%s solution=%s",
+                    "OK" if problem_b64 else "MISSING",
+                    "OK" if solution_b64 else "MISSING")
+    else:
+        logger.warning("[scenario] both images missing — text-only response")
 
     return {
         "topic": req.topic,
         "problem_prompt": problem_prompt,
         "problem_description": problem_description,
-        "problem_image_url": problem_url,
+        "problem_image_url": f"data:image/png;base64,{problem_b64}" if problem_b64 else "",
         "solution_prompt": solution_prompt,
         "solution_description": solution_description,
-        "solution_image_url": solution_url,
+        "solution_image_url": f"data:image/png;base64,{solution_b64}" if solution_b64 else "",
     }
 
 
