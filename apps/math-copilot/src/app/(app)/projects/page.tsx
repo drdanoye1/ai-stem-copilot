@@ -35,6 +35,63 @@ const MODELS = [
   { key: "claude-haiku-4",  label: "Claude Haiku" },
 ];
 
+// ── How It Works banner ───────────────────────────────────────────────────────
+const HOW_STEPS = [
+  { n: "1", icon: "📋", title: "Read the Steps",   body: "Work through the numbered steps and expand hints if you get stuck." },
+  { n: "2", icon: "✏️",  title: "Write Your Solution", body: "Type your full working in the Submit tab — the AI grades your reasoning, not just the final answer." },
+  { n: "3", icon: "🎯", title: "Get AI Feedback",  body: "Receive a score, rubric breakdown, strengths, and personalised next steps." },
+];
+
+function HowItWorksBanner() {
+  const [open, setOpen] = useState(true);
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)}
+        className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs text-left"
+        style={{ background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.15)", color: "#a78bfa" }}>
+        <Lightbulb className="w-3.5 h-3.5 flex-shrink-0" />
+        <span className="font-semibold">How It Works</span>
+        <span className="ml-auto" style={{ color: "#475569" }}>▼ Show</span>
+      </button>
+    );
+  }
+  return (
+    <div className="rounded-xl overflow-hidden"
+      style={{ background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.18)" }}>
+      <div className="flex items-center justify-between px-4 py-3"
+        style={{ borderBottom: "1px solid rgba(139,92,246,0.12)" }}>
+        <div className="flex items-center gap-2">
+          <Lightbulb className="w-3.5 h-3.5" style={{ color: "#a78bfa" }} />
+          <span className="text-xs font-semibold" style={{ color: "#a78bfa" }}>How It Works</span>
+        </div>
+        <button onClick={() => setOpen(false)}
+          className="text-[10px] px-2 py-0.5 rounded-lg"
+          style={{ background: "rgba(255,255,255,0.06)", color: "#475569" }}>
+          Hide ▲
+        </button>
+      </div>
+      <div className="grid grid-cols-3 gap-3 p-4">
+        {HOW_STEPS.map(s => (
+          <div key={s.n} className="text-center">
+            <div className="text-xl mb-1.5">{s.icon}</div>
+            <p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: "#a78bfa" }}>
+              Step {s.n}
+            </p>
+            <p className="text-[11px] font-semibold mb-1" style={{ color: "#e2e8f0" }}>{s.title}</p>
+            <p className="text-[10px] leading-relaxed" style={{ color: "#475569" }}>{s.body}</p>
+          </div>
+        ))}
+      </div>
+      <div className="px-4 pb-3 flex items-center gap-2 text-[10px]" style={{ color: "#334155" }}>
+        <span style={{ color: "#6366f1" }}>💡</span>
+        Use the <strong className="text-slate-400 mx-0.5">Steps & Hints</strong> tab first, then
+        <strong className="text-slate-400 mx-0.5">Submit Work</strong>, then check
+        <strong className="text-slate-400 mx-0.5">AI Feedback</strong>.
+      </div>
+    </div>
+  );
+}
+
 // ── Stars ─────────────────────────────────────────────────────────────────────
 function Stars({ n, max = 5 }: { n: number; max?: number }) {
   return (
@@ -220,11 +277,8 @@ function ProjectDrawer({
       const { data } = await projectsApi.submit(project.id, workText.trim(), modelName);
       setFeedback(data);
       setTab("feedback");
-    } catch (e: unknown) {
-      const msg =
-        (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
-        "Submission failed. Please try again.";
-      setError(msg);
+    } catch {
+      setError("Submission failed. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -293,6 +347,9 @@ function ProjectDrawer({
 
         {/* Scrollable content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
+
+          {/* ── How It Works banner ── */}
+          <HowItWorksBanner />
 
           {/* ── Steps tab ── */}
           {tab === "steps" && (
