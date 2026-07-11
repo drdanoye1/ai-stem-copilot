@@ -5,8 +5,13 @@ import { useAuthStore } from "@/store/auth";
 import { MathOutput } from "@/components/MathOutput";
 import { ReformulateBar } from "@/components/ReformulateBar";
 import { VizRenderer } from "@/components/viz";
-import { BookOpen, Loader2, ChevronDown, Search, ChevronRight, Sparkles, Bookmark, BookmarkCheck, Copy, CheckCircle2, Download } from "lucide-react";
+import { BookOpen, Loader2, ChevronDown, Search, ChevronRight, Sparkles, Bookmark, BookmarkCheck, Copy, CheckCircle2, Download, Hash, Variable, Triangle, Waves, Activity, TrendingUp, BarChart2, Grid, Sigma, Network } from "lucide-react";
 import { ModelSelector, useModel } from "@/components/ModelSelector";
+
+// Map backend icon-name strings → Lucide components
+const SUBJECT_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
+  Hash, Variable, Triangle, Waves, Activity, TrendingUp, BarChart2, Grid, Sigma, Network,
+};
 
 const LEVELS = [
   { value: "middle_school",     label: "Middle School"     },
@@ -243,7 +248,9 @@ export default function ExplorePage() {
                 background: selected?.key === s.key ? `${s.color}18` : "rgba(255,255,255,0.03)",
                 border: `1px solid ${selected?.key === s.key ? `${s.color}40` : "rgba(255,255,255,0.07)"}`,
               }}>
-              <div className="text-xl mb-1">{s.icon}</div>
+              <div className="flex justify-center mb-1">
+                {(() => { const I = SUBJECT_ICON_MAP[s.icon]; return I ? <I className="w-5 h-5" /> : <span className="text-lg">{s.icon}</span>; })()}
+              </div>
               <div className="text-[10px] font-semibold truncate" style={{ color: selected?.key === s.key ? s.color : "#475569" }}>
                 {s.label}
               </div>
@@ -443,15 +450,4 @@ export default function ExplorePage() {
                 style={{ background: "rgba(251,191,36,0.10)", border: "1px solid rgba(251,191,36,0.22)", color: "#fbbf24" }}>
                 <ChevronRight className="w-3.5 h-3.5" />Theory Lesson
               </a>
-              <a href={`/practice?topic=${encodeURIComponent(topic)}&subject=${selected?.key || "algebra"}&level=${level}&curriculum=${curriculum}`}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
-                style={{ background: "rgba(52,211,153,0.10)", border: "1px solid rgba(52,211,153,0.22)", color: "#34d399" }}>
-                <ChevronRight className="w-3.5 h-3.5" />Practice
-              </a>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+              <a href={`/practice?topic=
