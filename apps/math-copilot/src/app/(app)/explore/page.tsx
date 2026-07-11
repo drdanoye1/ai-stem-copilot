@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
-import { mathApi, type SubjectInfo, type VizHint } from "@/lib/api";
+import { mathApi, getErrorMessage, type SubjectInfo, type VizHint } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
 import { MathOutput } from "@/components/MathOutput";
 import { ReformulateBar } from "@/components/ReformulateBar";
@@ -141,7 +141,7 @@ export default function ExplorePage() {
       setShowSaveInput(false);
       setVizHint(data.extra?.visualization_hints ?? null);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || "Exploration failed.");
+      setError(getErrorMessage(err));
     } finally {
       setRunning(false);
     }

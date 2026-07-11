@@ -21,6 +21,44 @@ from app.config import settings
 
 logger = logging.getLogger("uvicorn.error")
 
+
+def _ai_http_error(endpoint: str, exc: Exception) -> HTTPException:
+    """Convert raw AI-provider exceptions into sanitised HTTP responses.
+
+    The real error is logged server-side only — users never see API keys,
+    quota details, model names, or provider internals.
+    """
+    logger.error("[%s] AI provider error — %s: %s", endpoint, type(exc).__name__, exc, exc_info=True)
+    msg = str(exc).lower()
+
+    # Rate-limit / quota (OpenAI 429, Anthropic 429, Gemini quota)
+    if any(k in msg for k in ("rate limit", "quota", "insufficient_quota", "ratelimit", "429")):
+        return HTTPException(
+            status_code=503,
+            detail={"code": "SERVICE_BUSY", "message": "The AI service is temporarily busy. Please try again in a few moments."},
+        )
+
+    # Auth / key problems
+    if any(k in msg for k in ("authentication", "api key", "unauthorized", "invalid_api_key", "401")):
+        return HTTPException(
+            status_code=503,
+            detail={"code": "SERVICE_UNAVAILABLE", "message": "AI service is temporarily unavailable. Please try again later."},
+        )
+
+    # Model not found / invalid model
+    if any(k in msg for k in ("model", "does not exist", "invalid_value", "not found")):
+        return HTTPException(
+            status_code=503,
+            detail={"code": "SERVICE_UNAVAILABLE", "message": "AI service is temporarily unavailable. Please try again later."},
+        )
+
+    # Generic fallback
+    return HTTPException(
+        status_code=500,
+        detail={"code": "AI_ERROR", "message": "Something went wrong while processing your request. Please try again."},
+    )
+
+
 # ── Graceful AI imports ───────────────────────────────────────────────────────
 
 try:
@@ -842,7 +880,7 @@ async def solve(
         output, prompt_tok, completion_tok = await dispatch(SOLVE_SYSTEM, prompt, req.model_name, max_tokens)
     except Exception as e:
         logger.error(f"[solve] {type(e).__name__}: {e}", exc_info=True)
-        raise HTTPException(500, f"AI solver error [{type(e).__name__}]: {str(e)[:300]}")
+        raise _ai_http_error("solve", e)
 
     duration = int(time.time() * 1000) - start_ms
 
@@ -914,7 +952,7 @@ async def explore(
     try:
         output, prompt_tok, completion_tok = await dispatch(EXPLORE_SYSTEM, prompt, req.model_name, max_tokens)
     except Exception as e:
-        raise HTTPException(500, f"AI explorer error: {str(e)[:200]}")
+        raise _ai_http_error("explore", e)
 
     duration = int(time.time() * 1000) - start_ms
     output, viz_hint = _extract_viz_hint(output)
@@ -968,7 +1006,7 @@ async def practice(
     try:
         output, prompt_tok, completion_tok = await dispatch(PRACTICE_SYSTEM, prompt, req.model_name, max_tokens)
     except Exception as e:
-        raise HTTPException(500, f"AI practice error: {str(e)[:200]}")
+        raise _ai_http_error("practice", e)
 
     duration = int(time.time() * 1000) - start_ms
 
@@ -1028,7 +1066,7 @@ async def theory(
         output, prompt_tok, completion_tok = await dispatch(THEORY_SYSTEM, prompt, req.model_name, max_tokens)
     except Exception as e:
         logger.error(f"[theory] {type(e).__name__}: {e}", exc_info=True)
-        raise HTTPException(500, f"AI theory error [{type(e).__name__}]: {str(e)[:300]}")
+        raise _ai_http_error("theory", e)
 
     duration = int(time.time() * 1000) - start_ms
     output, viz_hint = _extract_viz_hint(output)
@@ -1291,7 +1329,7 @@ async def scenario(
         solution_description = prompts.get("solution_description", "")
     except Exception as e:
         logger.error(f"[scenario] prompt generation failed: {e}", exc_info=True)
-        raise HTTPException(500, f"Failed to generate image prompts: {e}")
+        raise _ai_http_error("scenario/prompts", e)
 
     # Step 2 — Generate both images in parallel
     img_model = req.image_model or "dall-e-3"
@@ -1313,7 +1351,7 @@ async def scenario(
         )
     except Exception as e:
         logger.error(f"[scenario] image generation failed: {e}", exc_info=True)
-        raise HTTPException(500, f"Image generation failed: {e}")
+        raise _ai_http_error("scenario/images", e)
 
     return {
         "topic": req.topic,
@@ -1600,11 +1638,4 @@ async def list_subjects():
             {"key": "geometry",      "label": "Geometry",                 "icon": "Triangle",   "color": "bg-violet-100 text-violet-700","topics": ["Triangles", "Circles", "Polygons", "Coordinate Geometry", "Transformations", "Proofs", "3D Geometry"]},
             {"key": "trigonometry",  "label": "Trigonometry",             "icon": "Waves",      "color": "bg-indigo-100 text-indigo-700","topics": ["Unit Circle", "Trig Functions", "Identities", "Solving Trig Equations", "Inverse Functions", "Law of Sines/Cosines"]},
             {"key": "precalculus",   "label": "Pre-Calculus",             "icon": "Activity",   "color": "bg-purple-100 text-purple-700","topics": ["Functions", "Polynomial Functions", "Rational Functions", "Exponential Functions", "Logarithmic Functions", "Sequences & Series"]},
-            {"key": "calculus",      "label": "Calculus",                 "icon": "TrendingUp", "color": "bg-emerald-100 text-emerald-700","topics": ["Limits", "Derivatives", "Differentiation Rules", "Applications of Derivatives", "Integrals", "Integration Techniques", "Applications of Integrals", "Multivariable Calculus"]},
-            {"key": "statistics",    "label": "Statistics & Probability", "icon": "BarChart2",  "color": "bg-amber-100 text-amber-700",  "topics": ["Descriptive Statistics", "Probability", "Distributions", "Hypothesis Testing", "Regression", "Confidence Intervals"]},
-            {"key": "linear_algebra","label": "Linear Algebra",           "icon": "Grid",       "color": "bg-rose-100 text-rose-700",    "topics": ["Vectors", "Matrices", "Determinants", "Systems of Linear Equations", "Eigenvalues", "Vector Spaces", "Linear Transformations"]},
-            {"key": "differential_equations","label": "Differential Equations","icon": "Sigma", "color": "bg-teal-100 text-teal-700",   "topics": ["First-Order ODEs", "Second-Order ODEs", "Systems of ODEs", "Laplace Transforms", "Series Solutions", "Partial Differential Equations"]},
-            {"key": "discrete_math", "label": "Discrete Mathematics",     "icon": "Network",    "color": "bg-orange-100 text-orange-700","topics": ["Logic", "Set Theory", "Combinatorics", "Graph Theory", "Number Theory", "Proofs", "Algorithms"]},
-        ]
-    }
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
+            {"key": "calculus",      "label": "Calculus",                 "icon": "TrendingUp", "color": "bg-emerald-100 text-emerald-700","topics": ["Limits", "Derivatives", "Differentiation Rules", "Applications of Derivatives", "Integrals", "Integration Techniques", "Applications of Integrals", "Multivariable 

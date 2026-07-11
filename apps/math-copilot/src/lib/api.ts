@@ -30,6 +30,40 @@ api.interceptors.response.use(
   }
 );
 
+// ── Error helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Extract a user-safe message from an axios error.
+ * Raw API/provider details are never exposed — only the sanitised message
+ * the backend placed in detail.message, or a generic fallback.
+ */
+export function getErrorMessage(err: unknown): string {
+  if (!err || typeof err !== "object") return "Something went wrong. Please try again.";
+  const e = err as Record<string, unknown>;
+
+  // Backend structured error: { detail: { code, message } }
+  const detail = (e as { response?: { data?: { detail?: unknown } } }).response?.data?.detail;
+  if (detail && typeof detail === "object" && "message" in (detail as object)) {
+    return (detail as { message: string }).message;
+  }
+  // Backend plain string detail
+  if (typeof detail === "string" && detail.length < 120) return detail;
+
+  // HTTP status-based fallback
+  const status = (e as { response?: { status?: number } }).response?.status;
+  if (status === 503) return "The AI service is temporarily busy. Please try again in a few moments.";
+  if (status === 429) return "The AI service is temporarily busy. Please try again in a few moments.";
+  if (status === 500) return "Something went wrong. Please try again.";
+  if (status === 401) return "Your session has expired. Please log in again.";
+  if (status === 403) return "You don't have permission to perform this action.";
+
+  // Network / timeout
+  const code = (e as { code?: string }).code;
+  if (code === "ECONNABORTED" || code === "ERR_NETWORK") return "Connection timed out. Please check your network and try again.";
+
+  return "Something went wrong. Please try again.";
+}
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface User {
@@ -435,42 +469,4 @@ export const mentorApi = {
   list: () => api.get<MentorSession[]>("/math/mentor"),
 };
 export const dataApi = {
-  worldBank: (indicator: string, country: string, startYear?: number, endYear?: number) =>
-    api.get<DataResult>("/data/world-bank", { params: { indicator, country, start_year: startYear, end_year: endYear } }),
-
-  imf: (indicator: string, country: string) =>
-    api.get<DataResult>("/data/imf", { params: { indicator, country } }),
-
-  openMeteo: (latitude: number, longitude: number, variable?: string) =>
-    api.get<DataResult>("/data/open-meteo", { params: { latitude, longitude, variable } }),
-
-  nasa: (latitude: number, longitude: number, parameter?: string) =>
-    api.get<DataResult>("/data/nasa-power", { params: { latitude, longitude, parameter } }),
-
-  who: (indicator: string, country?: string) =>
-    api.get<DataResult>("/data/who", { params: { indicator, country } }),
-
-  fetch: (params: {
-    source: string; indicator: string; country?: string; city?: string; years?: number;
-  }) => api.post<DataResult>("/math/data/fetch", params),
-
-  analyze: (data: {
-    source: string; indicator?: string; indicator_name?: string;
-    location?: string; unit?: string;
-    data: DataPoint[]; question?: string; subject?: string; model_name?: string;
-  }) =>
-    api.post<AnalyzeDataResponse>("/math/data/analyze", data),
-};
-
-// ── Projects API ──────────────────────────────────────────────────────────────
-
-export const projectsApi = {
-  list: (subject?: string, level?: string) =>
-    api.get<DiscoveryProject[]>("/math/projects", { params: { subject, level } }),
-
-  get: (id: string) => api.get<DiscoveryProject>(`/math/projects/${id}`),
-
-  submit: (projectId: string, studentWork: string, modelName?: string) =>
-    api.post<ProjectFeedback>(`/math/projects/${projectId}/submit`, {
-      work_text: studentWork,
-     
+  worldBank: (indicator: string, country: string, startY

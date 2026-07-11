@@ -171,7 +171,7 @@ export default function MentorPage() {
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
         || "Failed to start session. Please try again.";
-      setError(msg);
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -200,7 +200,7 @@ export default function MentorPage() {
     } catch (e: unknown) {
       const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
         || "Failed to get mentor response.";
-      setError(detail);
+      setError(getErrorMessage(err));
       // Roll back optimistic message
       setSession(prev => prev ? {
         ...prev,
