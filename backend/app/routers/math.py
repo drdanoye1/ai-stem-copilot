@@ -813,8 +813,16 @@ async def call_gemini(system: str, prompt: str, model: str, max_tokens: int) -> 
 async def dispatch(system: str, prompt: str, model: str, max_tokens: int) -> tuple[str, int, int]:
     provider = MODEL_PROVIDER_MAP.get(model, "openai")
     if provider == "google":
+        google_key = getattr(settings, "GOOGLE_API_KEY", "") or ""
+        if not google_key or not GEMINI_AVAILABLE:
+            logger.warning("[dispatch] GOOGLE_API_KEY not set — falling back to gpt-4o for model %s", model)
+            return await call_openai(system, prompt, "gpt-4o", max_tokens)
         return await call_gemini(system, prompt, model, max_tokens)
     if provider == "anthropic":
+        anthropic_key = getattr(settings, "ANTHROPIC_API_KEY", "") or ""
+        if not anthropic_key or not ANTHROPIC_AVAILABLE:
+            logger.warning("[dispatch] ANTHROPIC_API_KEY not set — falling back to gpt-4o for model %s", model)
+            return await call_openai(system, prompt, "gpt-4o", max_tokens)
         return await call_anthropic(system, prompt, model, max_tokens)
     return await call_openai(system, prompt, model, max_tokens)
 
