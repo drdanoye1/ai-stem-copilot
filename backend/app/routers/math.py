@@ -1351,14 +1351,22 @@ async def scenario(
         resp = await client.images.generate(**gen_kwargs)  # type: ignore[arg-type]
         return resp.data[0].url or ""
 
+    # Step 2 — Generate images in parallel; images are optional — text scenario
+    # is returned even when image generation is unavailable or over quota.
+    problem_url = ""
+    solution_url = ""
     try:
         problem_url, solution_url = await asyncio.gather(
             gen_image(problem_prompt),
             gen_image(solution_prompt),
         )
     except Exception as e:
-        logger.error(f"[scenario] image generation failed: {e}", exc_info=True)
-        raise _ai_http_error("scenario/images", e)
+        logger.warning(
+            "[scenario] image generation failed (returning text-only scenario): %s: %s",
+            type(e).__name__, e,
+        )
+        # Images unavailable — continue with empty URLs so the text scenario
+        # is still delivered to the user.
 
     return {
         "topic": req.topic,
@@ -1646,6 +1654,4 @@ async def list_subjects():
             {"key": "trigonometry",  "label": "Trigonometry",             "icon": "Waves",      "color": "bg-indigo-100 text-indigo-700","topics": ["Unit Circle", "Trig Functions", "Identities", "Solving Trig Equations", "Inverse Functions", "Law of Sines/Cosines"]},
             {"key": "precalculus",   "label": "Pre-Calculus",             "icon": "Activity",   "color": "bg-purple-100 text-purple-700","topics": ["Functions", "Polynomial Functions", "Rational Functions", "Exponential Functions", "Logarithmic Functions", "Sequences & Series"]},
             {"key": "calculus",      "label": "Calculus",                 "icon": "TrendingUp", "color": "bg-emerald-100 text-emerald-700","topics": ["Limits", "Derivatives", "Differentiation Rules", "Applications of Derivatives", "Integrals", "Integration Techniques", "Applications of Integrals", "Multivariable Calculus"]},
-            {"key": "statistics",    "label": "Statistics & Probability", "icon": "BarChart2",  "color": "bg-amber-100 text-amber-700",  "topics": ["Descriptive Statistics", "Probability", "Distributions", "Hypothesis Testing", "Regression", "Confidence Intervals"]},
-            {"key": "linear_algebra","label": "Linear Algebra",           "icon": "Grid",       "color": "bg-rose-100 text-rose-700",    "topics": ["Vectors", "Matrices", "Determinants", "Systems of Linear Equations", "Eigenvalues", "Vector Spaces", "Linear Transformations"]},
-            {"key": "differential_equation
+            {"key": "statistics",    "label": "Statistics & Probability", "icon": "BarChart2",  "color": "bg-amber-100 text-amber-700",  "topics": ["Descriptive Statistics", "Probability", "Distributions", "Hypothesis Testing", "Regression"

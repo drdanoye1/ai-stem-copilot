@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import { mathApi, type ScenarioResponse } from "@/lib/api";
+import { mathApi, getErrorMessage, type ScenarioResponse } from "@/lib/api";
 import {
   Camera, Loader2, ChevronDown, Sparkles, Lightbulb,
   GraduationCap, BarChart3, FlaskConical, Globe, AlertCircle,
@@ -125,28 +125,41 @@ function ScenarioImage({
           <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: accent }}>
             {label}
           </span>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setZoomed(true)}
-              className="w-6 h-6 rounded-md flex items-center justify-center transition-opacity hover:opacity-80"
-              style={{ background: `${accent}18`, border: `1px solid ${accent}30` }}
-              title="View full size">
-              <ZoomIn className="w-3 h-3" style={{ color: accent }} />
-            </button>
-            <a href={url} download target="_blank" rel="noreferrer"
-              className="w-6 h-6 rounded-md flex items-center justify-center transition-opacity hover:opacity-80"
-              style={{ background: `${accent}18`, border: `1px solid ${accent}30` }}>
-              <Download className="w-3 h-3" style={{ color: accent }} />
-            </a>
-          </div>
+          {url && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setZoomed(true)}
+                className="w-6 h-6 rounded-md flex items-center justify-center transition-opacity hover:opacity-80"
+                style={{ background: `${accent}18`, border: `1px solid ${accent}30` }}
+                title="View full size">
+                <ZoomIn className="w-3 h-3" style={{ color: accent }} />
+              </button>
+              <a href={url} download target="_blank" rel="noreferrer"
+                className="w-6 h-6 rounded-md flex items-center justify-center transition-opacity hover:opacity-80"
+                style={{ background: `${accent}18`, border: `1px solid ${accent}30` }}>
+                <Download className="w-3 h-3" style={{ color: accent }} />
+              </a>
+            </div>
+          )}
         </div>
 
-        {/* Image */}
-        <div className="relative aspect-square w-full overflow-hidden cursor-zoom-in"
-          onClick={() => setZoomed(true)}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={url} alt={label} className="w-full h-full object-cover transition-transform duration-500 hover:scale-105" />
-        </div>
+        {/* Image or placeholder when image unavailable */}
+        {url ? (
+          <div className="relative aspect-square w-full overflow-hidden cursor-zoom-in"
+            onClick={() => setZoomed(true)}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={url} alt={label} className="w-full h-full object-cover transition-transform duration-500 hover:scale-105" />
+          </div>
+        ) : (
+          <div className="aspect-square w-full flex flex-col items-center justify-center gap-3"
+            style={{ background: `${accent}06`, borderTop: `1px solid ${accent}15` }}>
+            <Camera className="w-10 h-10 opacity-20" style={{ color: accent }} />
+            <p className="text-xs text-center px-6" style={{ color: "#475569" }}>
+              Image generation unavailable.<br />
+              Add OpenAI credits to enable DALL-E images.
+            </p>
+          </div>
+        )}
 
         {/* Description */}
         <div className="px-4 py-3">
@@ -205,7 +218,7 @@ export default function ScenarioPage() {
       });
       setResult(data);
     } catch (e: any) {
-      setError(e?.response?.data?.detail || "Scenario generation failed. Please try again.");
+      setError(getErrorMessage(e));
     } finally {
       setLoading(false);
     }
