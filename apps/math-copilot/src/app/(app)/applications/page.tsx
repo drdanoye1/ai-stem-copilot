@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import katex from "katex";
-import { mathApi, getErrorMessage, type Application } from "@/lib/api";
+import { mathApi, type Application } from "@/lib/api";
 import { MathOutput } from "@/components/MathOutput";
 import { ReformulateBar } from "@/components/ReformulateBar";
 import {
@@ -285,7 +285,7 @@ export default function ApplicationsPage() {
       setApps(data.applications);
       setTopicLabel(data.topic);
     } catch (e: any) {
-      setError(getErrorMessage(e));
+      setError(e?.response?.data?.detail || "Applications generation failed.");
     } finally {
       setLoading(false);
     }

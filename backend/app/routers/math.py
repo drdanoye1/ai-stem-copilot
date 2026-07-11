@@ -516,21 +516,28 @@ TOPIC (optional): {topic}
 EDUCATION LEVEL: {level}
 CURRICULUM STANDARD: {curriculum}
 
-Format each problem as:
+CRITICAL FORMATTING RULES:
+- Use $...$ for inline math (e.g. $x^2 + 1$)
+- Use $$...$$ on its own line for display/block math (e.g. $$\\int x^2\\,dx$$)
+- NEVER use square brackets [ ] around math expressions
+- NEVER use \\[...\\] notation — use $$...$$ only
+- Do NOT output HTML tags like <details> or <summary>
+
+Format each problem exactly as shown below (replace angle-bracket placeholders with real content):
 
 ---
 ### Problem {n}
-[Problem statement using LaTeX]
 
-**Hint:** [Optional hint — only include if difficulty is Hard or Expert]
+<Write the problem statement here. Use $...$ for inline math and $$...$$ for display math.>
 
-<details>
-<summary>Show Solution</summary>
+**Hint:** <Optional hint — only include if difficulty is Hard or Expert. Omit this line otherwise.>
 
-[Complete step-by-step solution using LaTeX]
+**▶ Show Solution**
 
-**Answer:** $[final answer]$
-</details>
+<Write the complete step-by-step solution here. Use $...$ for inline math and $$...$$ for display math.>
+
+**Answer:** $<final answer>$
+
 ---
 
 Problems should vary in style and approach. Ensure all {count} problems are distinct."""
@@ -1641,7 +1648,4 @@ async def list_subjects():
             {"key": "calculus",      "label": "Calculus",                 "icon": "TrendingUp", "color": "bg-emerald-100 text-emerald-700","topics": ["Limits", "Derivatives", "Differentiation Rules", "Applications of Derivatives", "Integrals", "Integration Techniques", "Applications of Integrals", "Multivariable Calculus"]},
             {"key": "statistics",    "label": "Statistics & Probability", "icon": "BarChart2",  "color": "bg-amber-100 text-amber-700",  "topics": ["Descriptive Statistics", "Probability", "Distributions", "Hypothesis Testing", "Regression", "Confidence Intervals"]},
             {"key": "linear_algebra","label": "Linear Algebra",           "icon": "Grid",       "color": "bg-rose-100 text-rose-700",    "topics": ["Vectors", "Matrices", "Determinants", "Systems of Linear Equations", "Eigenvalues", "Vector Spaces", "Linear Transformations"]},
-            {"key": "differential_equations","label": "Differential Equations","icon": "Sigma", "color": "bg-teal-100 text-teal-700",   "topics": ["First-Order ODEs", "Second-Order ODEs", "Systems of ODEs", "Laplace Transforms", "Series Solutions", "Partial Differential Equations"]},
-            {"key": "discrete_math", "label": "Discrete Mathematics",     "icon": "Network",    "color": "bg-orange-100 text-orange-700","topics": ["Logic", "Set Theory", "Combinatorics", "Graph Theory", "Number Theory", "Proofs", "Algorithms"]},
-        ]
-    }
+            {"key": "differential_equation

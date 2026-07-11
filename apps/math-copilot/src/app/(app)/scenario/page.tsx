@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import { mathApi, getErrorMessage, type ScenarioResponse } from "@/lib/api";
+import { mathApi, type ScenarioResponse } from "@/lib/api";
 import {
   Camera, Loader2, ChevronDown, Sparkles, Lightbulb,
   GraduationCap, BarChart3, FlaskConical, Globe, AlertCircle,
@@ -205,7 +205,7 @@ export default function ScenarioPage() {
       });
       setResult(data);
     } catch (e: any) {
-      setError(getErrorMessage(e));
+      setError(e?.response?.data?.detail || "Scenario generation failed. Please try again.");
     } finally {
       setLoading(false);
     }
