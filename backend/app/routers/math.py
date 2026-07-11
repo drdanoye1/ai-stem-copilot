@@ -1154,12 +1154,51 @@ async def objectives(
 
 
 def _parse_json_response(raw: str) -> dict:
-    """Strip markdown fences and parse JSON. Raises ValueError on failure."""
+    """Strip markdown fences and parse JSON.
+
+    Attempt 1 — direct parse.
+    Attempt 2 — repair unescaped LaTeX backslashes then retry.
+    LLMs frequently output LaTeX like \\frac{} instead of JSON-safe \\\\frac{}.
+    Raises ValueError on failure.
+    """
     cleaned = raw.strip()
     if cleaned.startswith("```"):
         lines = cleaned.split("\n")
         cleaned = "\n".join(lines[1:-1]) if len(lines) > 2 else cleaned
-    return _json.loads(cleaned)
+    # Strip trailing commas before closing braces (common LLM mistake)
+    cleaned = _re.sub(r",\s*([}\]])", r"\1", cleaned)
+    # Attempt 1: direct parse
+    try:
+        return _json.loads(cleaned)
+    except _json.JSONDecodeError:
+        pass
+    # Attempt 2: fix unescaped backslashes (LaTeX in JSON)
+    # Walk char-by-char: keep \\ and \" as-is; double all other bare backslashes.
+    repaired = []
+    i = 0
+    while i < len(cleaned):
+        ch = cleaned[i]
+        if ch == "\\" and i + 1 < len(cleaned):
+            nxt = cleaned[i + 1]
+            if nxt in ('"', "\\"):
+                # Valid JSON escape — keep both chars
+                repaired.append(ch)
+                repaired.append(nxt)
+                i += 2
+            else:
+                # Bare LaTeX backslash — double it so JSON can parse it
+                repaired.append("\\\\")
+                i += 1
+        else:
+            repaired.append(ch)
+            i += 1
+    fixed = "".join(repaired)
+    try:
+        return _json.loads(fixed)
+    except _json.JSONDecodeError:
+        pass
+    raise ValueError(f"Could not parse JSON response (len={len(cleaned)}): {cleaned[:300]}")
+
 
 
 @router.post("/visualize", status_code=status.HTTP_200_OK)
@@ -1397,7 +1436,7 @@ async def scenario(
     try:
         raw, _, _ = await dispatch(
             "You are a JSON generator. Return only valid JSON with no markdown fences.",
-            prompt, req.model_name, 800,
+            prompt, req.model_name, 1500,
         )
         data = _parse_json_response(raw)
         problem_prompt      = data.get("problem_prompt", "")
