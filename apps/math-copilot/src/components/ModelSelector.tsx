@@ -149,4 +149,53 @@ export function ModelSelector({ value, onChange, compact = false }: ModelSelecto
           {PROVIDER_ORDER.map(provider => {
             const group = MODELS.filter(m => m.provider === provider);
             return (
-            
+              <div key={provider}>
+                <div className="px-3 py-1">
+                  <span className="text-[9px] font-semibold uppercase tracking-wider" style={{ color: "#334155" }}>
+                    {provider}
+                  </span>
+                </div>
+                {group.map(m => {
+                  const active = m.id === value;
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => { onChange(m.id); setOpen(false); }}
+                      className="w-full text-left px-3 py-2.5 transition-all"
+                      style={{
+                        background: active ? `${m.badgeColor}12` : "transparent",
+                        borderLeft: active ? `2px solid ${m.badgeColor}` : "2px solid transparent",
+                      }}
+                    >
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="text-xs font-semibold" style={{ color: active ? m.badgeColor : "#f1f5f9" }}>
+                          {m.label}
+                        </span>
+                        <span
+                          className="text-[8px] px-1.5 py-0.5 rounded-full font-bold"
+                          style={{ background: `${m.badgeColor}20`, color: m.badgeColor }}
+                        >
+                          {m.badge}
+                        </span>
+                      </div>
+                      <p className="text-[10px] leading-snug" style={{ color: "#475569" }}>
+                        {m.description}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })}
+
+          <div className="px-3 py-2 border-t" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
+            <p className="text-[9px]" style={{ color: "#1e293b" }}>
+              Choice persists across all pages
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

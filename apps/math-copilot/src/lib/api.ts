@@ -469,4 +469,44 @@ export const mentorApi = {
   list: () => api.get<MentorSession[]>("/math/mentor"),
 };
 export const dataApi = {
-  worldBank: (indicator: string, country: string, startY
+  worldBank: (indicator: string, country: string, startYear?: number, endYear?: number) =>
+    api.get<DataResult>("/data/world-bank", { params: { indicator, country, start_year: startYear, end_year: endYear } }),
+
+  imf: (indicator: string, country: string) =>
+    api.get<DataResult>("/data/imf", { params: { indicator, country } }),
+
+  openMeteo: (latitude: number, longitude: number, variable?: string) =>
+    api.get<DataResult>("/data/open-meteo", { params: { latitude, longitude, variable } }),
+
+  nasa: (latitude: number, longitude: number, parameter?: string) =>
+    api.get<DataResult>("/data/nasa-power", { params: { latitude, longitude, parameter } }),
+
+  who: (indicator: string, country?: string) =>
+    api.get<DataResult>("/data/who", { params: { indicator, country } }),
+
+  fetch: (params: {
+    source: string; indicator: string; country?: string; city?: string; years?: number;
+  }) => api.post<DataResult>("/math/data/fetch", params),
+
+  analyze: (data: {
+    source: string; indicator?: string; indicator_name?: string;
+    location?: string; unit?: string;
+    data: DataPoint[]; question?: string; subject?: string; model_name?: string;
+  }) =>
+    api.post<AnalyzeDataResponse>("/math/data/analyze", data),
+};
+
+// ── Projects API ──────────────────────────────────────────────────────────────
+
+export const projectsApi = {
+  list: (subject?: string, level?: string) =>
+    api.get<DiscoveryProject[]>("/math/projects", { params: { subject, level } }),
+
+  get: (id: string) => api.get<DiscoveryProject>(`/math/projects/${id}`),
+
+  submit: (projectId: string, studentWork: string, modelName?: string) =>
+    api.post<ProjectFeedback>(`/math/projects/${projectId}/submit`, {
+      work_text: studentWork,
+      model_name: modelName ?? "gpt-4o",
+    }),
+};

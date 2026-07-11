@@ -249,7 +249,7 @@ export default function ExplorePage() {
                 border: `1px solid ${selected?.key === s.key ? `${s.color}40` : "rgba(255,255,255,0.07)"}`,
               }}>
               <div className="flex justify-center mb-1">
-                {(() => { const I = SUBJECT_ICON_MAP[s.icon]; return I ? <I className="w-5 h-5" /> : <span className="text-lg">{s.icon}</span>; })()}
+                {(() => { const I = s.icon ? SUBJECT_ICON_MAP[s.icon] : undefined; return I ? <I className="w-5 h-5" /> : <span className="text-lg">{s.icon}</span>; })()}
               </div>
               <div className="text-[10px] font-semibold truncate" style={{ color: selected?.key === s.key ? s.color : "#475569" }}>
                 {s.label}
@@ -450,4 +450,15 @@ export default function ExplorePage() {
                 style={{ background: "rgba(251,191,36,0.10)", border: "1px solid rgba(251,191,36,0.22)", color: "#fbbf24" }}>
                 <ChevronRight className="w-3.5 h-3.5" />Theory Lesson
               </a>
-              <a href={`/practice?topic=
+              <a href={`/practice?topic=${encodeURIComponent(topic)}&subject=${selected?.key || "algebra"}&level=${level}&curriculum=${curriculum}`}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+                style={{ background: "rgba(52,211,153,0.10)", border: "1px solid rgba(52,211,153,0.22)", color: "#34d399" }}>
+                <ChevronRight className="w-3.5 h-3.5" />Practice
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
