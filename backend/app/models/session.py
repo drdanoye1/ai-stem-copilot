@@ -57,5 +57,4 @@ class UserTopicProgress(Base):
     topic           = Column(String, nullable=False)
     problems_solved = Column(Integer, default=0)
     mastery_score   = Column(Integer, default=0)    # 0–100
-    last_practiced  = Column(DateTime(timezone=True), server_default=func.now())
-    created_at      = Column(DateTime(timezone=True), server_default=func.now())
+    last_practiced  = Column(DateTime(timezone=True), server_default=func.no

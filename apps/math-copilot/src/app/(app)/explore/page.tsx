@@ -1,12 +1,17 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
-import { mathApi, type SubjectInfo, type VizHint } from "@/lib/api";
+import { mathApi, getErrorMessage, type SubjectInfo, type VizHint } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
 import { MathOutput } from "@/components/MathOutput";
 import { ReformulateBar } from "@/components/ReformulateBar";
 import { VizRenderer } from "@/components/viz";
-import { BookOpen, Loader2, ChevronDown, Search, ChevronRight, Sparkles, Bookmark, BookmarkCheck, Copy, CheckCircle2, Download } from "lucide-react";
+import { BookOpen, Loader2, ChevronDown, Search, ChevronRight, Sparkles, Bookmark, BookmarkCheck, Copy, CheckCircle2, Download, Hash, Variable, Triangle, Waves, Activity, TrendingUp, BarChart2, Grid, Sigma, Network } from "lucide-react";
 import { ModelSelector, useModel } from "@/components/ModelSelector";
+
+// Map backend icon-name strings → Lucide components
+const SUBJECT_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
+  Hash, Variable, Triangle, Waves, Activity, TrendingUp, BarChart2, Grid, Sigma, Network,
+};
 
 const LEVELS = [
   { value: "middle_school",     label: "Middle School"     },
@@ -136,7 +141,7 @@ export default function ExplorePage() {
       setShowSaveInput(false);
       setVizHint(data.extra?.visualization_hints ?? null);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || "Exploration failed.");
+      setError(getErrorMessage(err));
     } finally {
       setRunning(false);
     }
@@ -243,7 +248,9 @@ export default function ExplorePage() {
                 background: selected?.key === s.key ? `${s.color}18` : "rgba(255,255,255,0.03)",
                 border: `1px solid ${selected?.key === s.key ? `${s.color}40` : "rgba(255,255,255,0.07)"}`,
               }}>
-              <div className="text-xl mb-1">{s.icon}</div>
+              <div className="flex justify-center mb-1">
+                {(() => { const I = s.icon ? SUBJECT_ICON_MAP[s.icon] : undefined; return I ? <I className="w-5 h-5" /> : <span className="text-lg">{s.icon}</span>; })()}
+              </div>
               <div className="text-[10px] font-semibold truncate" style={{ color: selected?.key === s.key ? s.color : "#475569" }}>
                 {s.label}
               </div>

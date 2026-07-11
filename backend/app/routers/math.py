@@ -723,33 +723,24 @@ class ScenarioRequest(BaseModel):
     level: str = "high_school"
     curriculum: str = "general"
     model_name: str = "gpt-4o"
-    image_model: str = "dall-e-3"   # dall-e-2 | dall-e-3 | gpt-image-1
+    image_model: str = "gpt-image-1"   # gpt-image-1 | dall-e-3
 
 
-SCENARIO_PROMPT = """You are an expert educational prompt engineer specialising in DALL-E 3 image generation.
+SCENARIO_PROMPT = """You are an expert mathematics educator creating immersive real-world scenarios.
 
 Topic: {topic}
 Subject: {subject}
 Level: {level}
 Curriculum: {curriculum}
 
-Generate two highly specific, photorealistic DALL-E 3 image prompts that illustrate this mathematical or engineering topic:
-
-PROBLEM IMAGE — a real-world scene showing the physical problem, failure, challenge, or phenomenon that this mathematics addresses.
-SOLUTION IMAGE — a real-world scene showing the successfully engineered or resolved outcome, demonstrating the mathematics at work.
-
-Rules for each prompt:
-- Be extremely specific: describe the exact object, setting, material, scale, lighting, and camera angle
-- Photorealistic documentary-style photograph — no diagrams, no overlaid text, no cartoons
-- Include context clues that make the before/after narrative clear
-- 1–2 sentences maximum per prompt
+Generate a compelling two-part scenario that shows how this mathematics solves a real engineering or scientific problem.
 
 Return ONLY a JSON object, no markdown fences, no explanation:
 {{
-  "problem_prompt": "...",
-  "problem_description": "One sentence explaining what this image represents as the problem.",
-  "solution_prompt": "...",
-  "solution_description": "One sentence explaining what this image represents as the solution."
+  "problem_prompt": "Short scene-setting title (5-8 words, e.g. \'Bridge Cable Snaps Under Ice Load\')",
+  "problem_description": "3-5 sentence vivid narrative of the real-world problem or failure. Describe the physical situation, the consequences, and exactly WHY mathematics is needed to resolve it. Use concrete numbers, measurements, and technical details appropriate for {level} level.",
+  "solution_prompt": "Short outcome title (5-8 words, e.g. \'Structural Redesign Prevents Catastrophic Collapse\')",
+  "solution_description": "3-5 sentence narrative of how the mathematics solves the problem. Describe the key equations or concepts applied, the quantitative result achieved, and the real-world impact. Make the mathematical connection explicit and inspiring."
 }}"""
 
 
@@ -1309,7 +1300,7 @@ async def scenario(
     req: ScenarioRequest,
     current_user: User = Depends(get_current_user),
 ):
-    """Scenario Intelligence™ — generate two photorealistic DALL-E 3 images: problem + solution."""
+    """Scenario Intelligence™ — rich text scenario + gpt-image-1 images (b64_json)."""
     import asyncio
 
     if not OPENAI_AVAILABLE or not getattr(settings, "OPENAI_API_KEY", ""):
@@ -1323,59 +1314,58 @@ async def scenario(
         curriculum=curriculum_ctx,
     )
 
-    # Step 1 — LLM generates precise DALL-E prompts
+    # Step 1 — LLM generates scenario text + image prompts
     try:
         raw, _, _ = await dispatch(
             "You are a JSON generator. Return only valid JSON with no markdown fences.",
-            prompt, req.model_name, 600,
+            prompt, req.model_name, 800,
         )
-        prompts = _parse_json_response(raw)
-        problem_prompt = prompts["problem_prompt"]
-        solution_prompt = prompts["solution_prompt"]
-        problem_description = prompts.get("problem_description", "")
-        solution_description = prompts.get("solution_description", "")
+        data = _parse_json_response(raw)
+        problem_prompt      = data.get("problem_prompt", "")
+        problem_description = data.get("problem_description", "")
+        solution_prompt     = data.get("solution_prompt", "")
+        solution_description = data.get("solution_description", "")
     except Exception as e:
-        logger.error(f"[scenario] prompt generation failed: {e}", exc_info=True)
-        raise _ai_http_error("scenario/prompts", e)
+        logger.error("[scenario] text generation failed: %s", e, exc_info=True)
+        raise _ai_http_error("scenario", e)
 
-    # Step 2 — Generate both images in parallel
-    img_model = req.image_model or "dall-e-3"
-    async def gen_image(image_prompt: str) -> str:
+    # Step 2 — Generate images with gpt-image-1 (b64_json); gracefully degrade if unavailable
+    img_model = req.image_model or "gpt-image-1"
+
+    async def gen_image_b64(image_prompt: str) -> str:
+        """Returns base64-encoded PNG string, or empty string on failure."""
         client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY, timeout=120.0)
-        # response_format param removed in newer OpenAI API — use URL responses (default).
-        gen_kwargs: dict = {"model": img_model, "prompt": image_prompt, "size": "1024x1024", "n": 1}
-        if img_model == "dall-e-3":
-            gen_kwargs["quality"] = "standard"          # dall-e-3: standard | hd
-        elif img_model == "gpt-image-1":
-            gen_kwargs["quality"] = "auto"              # gpt-image-1: low | medium | high | auto
-        resp = await client.images.generate(**gen_kwargs)  # type: ignore[arg-type]
-        return resp.data[0].url or ""
-
-    # Step 2 — Generate images in parallel; images are optional — text scenario
-    # is returned even when image generation is unavailable or over quota.
-    problem_url = ""
-    solution_url = ""
-    try:
-        problem_url, solution_url = await asyncio.gather(
-            gen_image(problem_prompt),
-            gen_image(solution_prompt),
+        resp = await client.images.generate(
+            model=img_model,
+            prompt=image_prompt,
+            size="1024x1024",
+            n=1,
+            response_format="b64_json",
         )
+        return resp.data[0].b64_json or ""
+
+    problem_b64 = ""
+    solution_b64 = ""
+    try:
+        problem_b64, solution_b64 = await asyncio.gather(
+            gen_image_b64(problem_prompt),
+            gen_image_b64(solution_prompt),
+        )
+        logger.info("[scenario] images generated successfully via %s", img_model)
     except Exception as e:
         logger.warning(
-            "[scenario] image generation failed (returning text-only scenario): %s: %s",
+            "[scenario] image generation failed — returning text-only (%s: %s)",
             type(e).__name__, e,
         )
-        # Images unavailable — continue with empty URLs so the text scenario
-        # is still delivered to the user.
 
     return {
         "topic": req.topic,
         "problem_prompt": problem_prompt,
         "problem_description": problem_description,
-        "problem_image_url": problem_url,
+        "problem_image_url": f"data:image/png;base64,{problem_b64}" if problem_b64 else "",
         "solution_prompt": solution_prompt,
         "solution_description": solution_description,
-        "solution_image_url": solution_url,
+        "solution_image_url": f"data:image/png;base64,{solution_b64}" if solution_b64 else "",
     }
 
 

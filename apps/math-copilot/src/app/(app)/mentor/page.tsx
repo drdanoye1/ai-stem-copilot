@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { GraduationCap, Send, RotateCcw, ChevronDown, Sparkles, BookOpen, Eye, Download } from "lucide-react";
 import { ModelSelector, useModel } from "@/components/ModelSelector";
-import { mentorApi, type MentorMessage, type MentorSession } from "@/lib/api";
+import { mentorApi, getErrorMessage, type MentorMessage, type MentorSession } from "@/lib/api";
 
 const ACCENT = "#a855f7";
 
@@ -171,7 +171,7 @@ export default function MentorPage() {
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
         || "Failed to start session. Please try again.";
-      setError(msg);
+      setError(getErrorMessage(e));
     } finally {
       setLoading(false);
     }
@@ -200,7 +200,7 @@ export default function MentorPage() {
     } catch (e: unknown) {
       const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
         || "Failed to get mentor response.";
-      setError(detail);
+      setError(getErrorMessage(e));
       // Roll back optimistic message
       setSession(prev => prev ? {
         ...prev,
@@ -486,3 +486,5 @@ export default function MentorPage() {
         </button>
       </form>
     </div>
+  );
+}
