@@ -1337,34 +1337,60 @@ async def scenario(
         logger.error("[scenario] text generation failed: %s", e, exc_info=True)
         raise _ai_http_error("scenario", e)
 
-    # Step 2 — Generate images with gpt-image-1 (b64_json); gracefully degrade if unavailable
+    # Step 2 — Generate images; gpt-image-1 always returns b64, dall-e-3 needs response_format
     img_model = req.image_model or "gpt-image-1"
 
-    async def gen_image_b64(image_prompt: str) -> str:
-        """Returns base64-encoded PNG string, or empty string on failure."""
-        client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY, timeout=120.0)
-        resp = await client.images.generate(
-            model=img_model,
-            prompt=image_prompt,
-            size="1024x1024",
-            n=1,
-            response_format="b64_json",
-        )
-        return resp.data[0].b64_json or ""
+    async def gen_image_b64(image_prompt: str, label: str = "") -> str:
+        """Returns base64-encoded PNG string, or empty string on any failure."""
+        try:
+            client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY, timeout=120.0)
+            if img_model == "gpt-image-1":
+                # gpt-image-1 does NOT accept response_format; returns b64_json by default
+                resp = await client.images.generate(
+                    model="gpt-image-1",
+                    prompt=image_prompt,
+                    size="1024x1024",
+                    n=1,
+                )
+            else:
+                # dall-e-2 / dall-e-3 support response_format
+                resp = await client.images.generate(
+                    model=img_model,
+                    prompt=image_prompt,
+                    size="1024x1024",
+                    quality="standard",
+                    n=1,
+                    response_format="b64_json",
+                )
+            b64 = resp.data[0].b64_json
+            if b64:
+                logger.info("[scenario] %s image OK (%d chars)", label or img_model, len(b64))
+                return b64
+            # Some variants return a URL instead — fetch and base64-encode it
+            import httpx, base64 as _b64
+            url = resp.data[0].url or ""
+            if url:
+                async with httpx.AsyncClient(timeout=30.0) as hc:
+                    img_bytes = (await hc.get(url)).content
+                logger.info("[scenario] %s image fetched from URL (%d bytes)", label or img_model, len(img_bytes))
+                return _b64.b64encode(img_bytes).decode()
+            logger.error("[scenario] %s: response had neither b64_json nor url", label or img_model)
+            return ""
+        except Exception as img_err:
+            logger.error("[scenario] %s image generation FAILED: %s: %s",
+                         label or img_model, type(img_err).__name__, img_err, exc_info=True)
+            return ""
 
-    problem_b64 = ""
-    solution_b64 = ""
-    try:
-        problem_b64, solution_b64 = await asyncio.gather(
-            gen_image_b64(problem_prompt),
-            gen_image_b64(solution_prompt),
-        )
-        logger.info("[scenario] images generated successfully via %s", img_model)
-    except Exception as e:
-        logger.warning(
-            "[scenario] image generation failed — returning text-only (%s: %s)",
-            type(e).__name__, e,
-        )
+    problem_b64, solution_b64 = await asyncio.gather(
+        gen_image_b64(problem_prompt,  "problem"),
+        gen_image_b64(solution_prompt, "solution"),
+    )
+    if problem_b64 or solution_b64:
+        logger.info("[scenario] images ready — problem=%s solution=%s",
+                    "OK" if problem_b64 else "MISSING",
+                    "OK" if solution_b64 else "MISSING")
+    else:
+        logger.warning("[scenario] both images missing — text-only response")
 
     return {
         "topic": req.topic,
