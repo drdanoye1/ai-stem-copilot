@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { GraduationCap, Send, RotateCcw, ChevronDown, Sparkles, BookOpen, Eye, Download } from "lucide-react";
 import { ModelSelector, useModel } from "@/components/ModelSelector";
-import { mentorApi, type MentorMessage, type MentorSession } from "@/lib/api";
+import { mentorApi, getErrorMessage, type MentorMessage, type MentorSession } from "@/lib/api";
 
 const ACCENT = "#a855f7";
 
@@ -37,6 +37,61 @@ const STARTER_TOPICS = [
   "What is the intuition behind Bayes' Theorem?",
 ];
 
+
+// ── How it works banner (shown at turn 1, collapsible) ───────────────────────
+
+const MENTOR_TIPS = [
+  { icon: "💬", title: "Read the question",   body: "The Mentor always opens with a question. Read it carefully — it targets exactly the concept you need to unpack." },
+  { icon: "🧠", title: "Share your thinking", body: "Type your best attempt at an answer, even if you're not sure. The Mentor adapts its next question to your response." },
+  { icon: "🔁", title: "Keep exchanging",     body: "After 6–10 back-and-forth turns you will arrive at the insight yourself — that's the Socratic method." },
+  { icon: "💡", title: "Stuck? Type 'hint'",  body: "If you're completely stuck, just type 'hint' and the Mentor will nudge you in the right direction without giving the answer." },
+];
+
+function HowMentorWorks() {
+  const [open, setOpen] = useState(true);
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)}
+        className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs text-left mb-1"
+        style={{ background: `${ACCENT}06`, border: `1px solid ${ACCENT}15`, color: "#a78bfa" }}>
+        <BookOpen className="w-3 h-3 flex-shrink-0" />
+        <span className="font-semibold">How to use AI Mentor</span>
+        <span className="ml-auto text-[10px]" style={{ color: "#475569" }}>▼ Show</span>
+      </button>
+    );
+  }
+  return (
+    <div className="rounded-xl overflow-hidden mb-1"
+      style={{ background: `${ACCENT}06`, border: `1px solid ${ACCENT}18` }}>
+      <div className="flex items-center justify-between px-4 py-2.5"
+        style={{ borderBottom: `1px solid ${ACCENT}12` }}>
+        <div className="flex items-center gap-2">
+          <BookOpen className="w-3.5 h-3.5" style={{ color: ACCENT }} />
+          <span className="text-xs font-semibold" style={{ color: ACCENT }}>How to use AI Mentor</span>
+        </div>
+        <button onClick={() => setOpen(false)}
+          className="text-[10px] px-2 py-0.5 rounded"
+          style={{ background: "rgba(255,255,255,0.06)", color: "#475569" }}>
+          Hide ▲
+        </button>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3">
+        {MENTOR_TIPS.map(t => (
+          <div key={t.icon} className="rounded-lg p-2.5"
+            style={{ background: "rgba(0,0,0,0.25)", border: "1px solid rgba(255,255,255,0.05)" }}>
+            <div className="text-base mb-1">{t.icon}</div>
+            <p className="text-[10px] font-bold mb-0.5" style={{ color: "#e2e8f0" }}>{t.title}</p>
+            <p className="text-[10px] leading-relaxed" style={{ color: "#475569" }}>{t.body}</p>
+          </div>
+        ))}
+      </div>
+      <div className="px-4 pb-2.5 text-[10px]" style={{ color: "#334155" }}>
+        The <strong className="text-purple-400">Discovery Progress</strong> bar fills as you exchange messages.
+        At the end you'll see a <strong className="text-purple-400">🎉 You discovered it!</strong> card with the full insight.
+      </div>
+    </div>
+  );
+}
 
 // ── Message bubble ────────────────────────────────────────────────────────────
 
@@ -169,9 +224,7 @@ export default function MentorPage() {
       setSession(res.data);
       setTopic(t);
     } catch (e: unknown) {
-      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-        || "Failed to start session. Please try again.";
-      setError(msg);
+      setError(getErrorMessage(e));
     } finally {
       setLoading(false);
     }
@@ -198,9 +251,7 @@ export default function MentorPage() {
       });
       setSession(res.data);
     } catch (e: unknown) {
-      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-        || "Failed to get mentor response.";
-      setError(detail);
+      setError(getErrorMessage(e));
       // Roll back optimistic message
       setSession(prev => prev ? {
         ...prev,
@@ -431,12 +482,8 @@ export default function MentorPage() {
 
       {/* Chat area */}
       <div className="flex-1 overflow-y-auto space-y-4 min-h-0 py-2 pr-1">
-        {/* Intro note */}
-        <div className="flex items-center gap-2 text-[10px]"
-          style={{ color: "#334155" }}>
-          <BookOpen className="w-3 h-3" />
-          <span>Your AI Mentor will guide you with questions — never direct answers.</span>
-        </div>
+        {/* How to use banner */}
+        <HowMentorWorks />
 
         {session.messages.map((msg, i) => (
           <Bubble key={i} msg={msg} isLatest={i === session.messages.length - 1} />
@@ -467,7 +514,7 @@ export default function MentorPage() {
           value={userInput}
           onChange={e => setUserInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Share your thinking… (Enter to send)"
+          placeholder="Answer the Mentor's question with your own thinking… (Enter to send, Shift+Enter for new line)"
           disabled={loading}
           rows={2}
           className="flex-1 px-4 py-3 rounded-xl text-sm outline-none resize-none"
@@ -486,3 +533,5 @@ export default function MentorPage() {
         </button>
       </form>
     </div>
+  );
+}

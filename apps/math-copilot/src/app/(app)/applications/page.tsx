@@ -2,14 +2,14 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import katex from "katex";
-import { mathApi, getErrorMessage, type Application } from "@/lib/api";
+import { mathApi, type Application } from "@/lib/api";
 import { MathOutput } from "@/components/MathOutput";
 import { ReformulateBar } from "@/components/ReformulateBar";
 import {
   Globe, Loader2, ChevronDown, Sparkles,
   GraduationCap, FlaskConical, BarChart3,
   Cpu, Heart, TrendingUp, Atom, TreePine, Building2,
-  Music, Dumbbell, Star, ChevronRight, Lightbulb, Camera, ZoomIn,
+  Music, Dumbbell, Star, ChevronRight, Lightbulb, Camera,
 } from "lucide-react";
 import { ModelSelector, useModel } from "@/components/ModelSelector";
 
@@ -181,12 +181,10 @@ function Select({ label, value, onChange, options }: {
 
 function AppCard({ app, index }: { app: Application; index: number }) {
   const [open, setOpen] = useState(index === 0);
-  const [zoomed, setZoomed] = useState(false);
   const c = FIELD_COLORS[app.icon?.toLowerCase()] ?? DEFAULT_COLOR;
   const icon = ICON_MAP[app.icon?.toLowerCase()] ?? <Globe className="w-4 h-4" />;
 
   return (
-    <>
     <div className="rounded-2xl overflow-hidden transition-all"
       style={{ background: "var(--bg-surface)", border: open ? `1px solid ${c.border}` : "1px solid rgba(255,255,255,0.07)" }}>
       {/* Header */}
@@ -209,29 +207,9 @@ function AppCard({ app, index }: { app: Application; index: number }) {
 
       {/* Expanded body */}
       {open && (
-        <div className="pb-5 space-y-4" style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
-          {/* Photorealistic image */}
-          {app.image_url && (
-            <div className="relative cursor-zoom-in group" style={{ aspectRatio: "16/9" }}
-              onClick={() => setZoomed(true)}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={app.image_url} alt={app.title}
-                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
-              <div className="absolute inset-0 flex items-end"
-                style={{ background: "linear-gradient(to top, rgba(0,0,0,0.55) 0%, transparent 50%)" }}>
-                <div className="flex items-center justify-between w-full px-4 py-3">
-                  <span className="text-xs font-semibold" style={{ color: c.color }}>{app.field}</span>
-                  <button onClick={e => { e.stopPropagation(); setZoomed(true); }}
-                    className="w-7 h-7 rounded-lg flex items-center justify-center"
-                    style={{ background: "rgba(0,0,0,0.50)", border: `1px solid ${c.border}` }}>
-                    <ZoomIn className="w-3.5 h-3.5" style={{ color: c.color }} />
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+        <div className="px-5 pb-5 space-y-4" style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
           {/* Problem */}
-          <div className="px-5 pt-4">
+          <div className="pt-4">
             <p className="text-[10px] font-semibold uppercase tracking-widest mb-1.5" style={{ color: "#475569" }}>The Problem</p>
             <div className="text-sm math-output [&_p]:mb-0 [&_p]:leading-7" style={{ color: "#94a3b8" }}>
               <MathOutput content={app.problem} />
@@ -239,7 +217,7 @@ function AppCard({ app, index }: { app: Application; index: number }) {
           </div>
 
           {/* Math connection */}
-          <div className="mx-5 rounded-xl p-3.5"
+          <div className="rounded-xl p-3.5"
             style={{ background: c.bg, border: `1px solid ${c.border}` }}>
             <p className="text-[10px] font-semibold uppercase tracking-widest mb-1.5" style={{ color: c.color }}>
               How the Math is Applied
@@ -251,14 +229,14 @@ function AppCard({ app, index }: { app: Application; index: number }) {
 
           {/* Formula */}
           {app.formula && (
-            <div className="mx-5 rounded-xl px-4 py-4 text-center overflow-x-auto"
+            <div className="rounded-xl px-4 py-4 text-center overflow-x-auto"
               style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.10)", color: "#f1f5f9" }}>
               <Formula text={app.formula} />
             </div>
           )}
 
           {/* Example */}
-          <div className="px-5">
+          <div>
             <p className="text-[10px] font-semibold uppercase tracking-widest mb-1.5" style={{ color: "#475569" }}>Concrete Example</p>
             <div className="text-sm [&_p]:mb-0 [&_p]:leading-7" style={{ color: "#94a3b8" }}>
               <MathOutput content={app.example} />
@@ -267,7 +245,7 @@ function AppCard({ app, index }: { app: Application; index: number }) {
 
           {/* Careers */}
           {app.careers?.length > 0 && (
-            <div className="px-5">
+            <div>
               <p className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: "#475569" }}>Career Paths</p>
               <div className="flex flex-wrap gap-2">
                 {app.careers.map((career, i) => (
@@ -282,25 +260,6 @@ function AppCard({ app, index }: { app: Application; index: number }) {
         </div>
       )}
     </div>
-
-    {/* Lightbox */}
-    {zoomed && app.image_url && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
-        style={{ background: "rgba(0,0,0,0.92)" }}
-        onClick={() => setZoomed(false)}>
-        <div className="max-w-3xl w-full" onClick={e => e.stopPropagation()}>
-          <div className="flex justify-between items-center mb-3">
-            <span className="text-sm font-semibold" style={{ color: c.color }}>{app.title}</span>
-            <button onClick={() => setZoomed(false)}
-              className="text-xs px-3 py-1.5 rounded-lg"
-              style={{ background: "rgba(255,255,255,0.08)", color: "#94a3b8" }}>Close</button>
-          </div>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={app.image_url} alt={app.title} className="w-full rounded-xl" />
-        </div>
-      </div>
-    )}
-    </>
   );
 }
 
@@ -322,11 +281,11 @@ export default function ApplicationsPage() {
     if (!t.trim()) return;
     setLoading(true); setError(null); setApps(null);
     try {
-      const { data } = await mathApi.applications({ topic: t.trim(), subject, level, curriculum, model_name: model, image_model: "gpt-image-1" });
+      const { data } = await mathApi.applications({ topic: t.trim(), subject, level, curriculum, model_name: model });
       setApps(data.applications);
       setTopicLabel(data.topic);
     } catch (e: any) {
-      setError(getErrorMessage(e));
+      setError(e?.response?.data?.detail || "Applications generation failed.");
     } finally {
       setLoading(false);
     }

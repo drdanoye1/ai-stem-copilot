@@ -30,40 +30,6 @@ api.interceptors.response.use(
   }
 );
 
-// ── Error helpers ─────────────────────────────────────────────────────────────
-
-/**
- * Extract a user-safe message from an axios error.
- * Raw API/provider details are never exposed — only the sanitised message
- * the backend placed in detail.message, or a generic fallback.
- */
-export function getErrorMessage(err: unknown): string {
-  if (!err || typeof err !== "object") return "Something went wrong. Please try again.";
-  const e = err as Record<string, unknown>;
-
-  // Backend structured error: { detail: { code, message } }
-  const detail = (e as { response?: { data?: { detail?: unknown } } }).response?.data?.detail;
-  if (detail && typeof detail === "object" && "message" in (detail as object)) {
-    return (detail as { message: string }).message;
-  }
-  // Backend plain string detail
-  if (typeof detail === "string" && detail.length < 120) return detail;
-
-  // HTTP status-based fallback
-  const status = (e as { response?: { status?: number } }).response?.status;
-  if (status === 503) return "The AI service is temporarily busy. Please try again in a few moments.";
-  if (status === 429) return "The AI service is temporarily busy. Please try again in a few moments.";
-  if (status === 500) return "Something went wrong. Please try again.";
-  if (status === 401) return "Your session has expired. Please log in again.";
-  if (status === 403) return "You don't have permission to perform this action.";
-
-  // Network / timeout
-  const code = (e as { code?: string }).code;
-  if (code === "ECONNABORTED" || code === "ERR_NETWORK") return "Connection timed out. Please check your network and try again.";
-
-  return "Something went wrong. Please try again.";
-}
-
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface User {
@@ -183,7 +149,6 @@ export interface Application {
   formula?: string;
   example: string;
   careers: string[];
-  image_url?: string;
 }
 export interface ApplicationsResponse {
   topic: string;
@@ -409,8 +374,7 @@ export const mathApi = {
 
   scenario: (data: {
     topic: string; subject: string; level: string;
-    model_name?: string; max_tokens?: number; curriculum?: string;
-    image_model?: string;  // "gpt-image-1" (default) | "dall-e-3"
+    model_name?: string; max_tokens?: number; curriculum?: string; image_model?: string;
   }) => api.post<ScenarioResponse>("/math/scenario", data),
 
   visualize: (data: {
@@ -422,7 +386,7 @@ export const mathApi = {
   }) => api.post<SimulateResponse>("/math/simulate", data),
 
   applications: (data: {
-    topic: string; subject: string; level: string; curriculum?: string; model_name?: string; image_model?: string; max_tokens?: number;
+    topic: string; subject: string; level: string; curriculum?: string; model_name?: string; max_tokens?: number;
   }) => api.post<ApplicationsResponse>("/math/applications", data),
 
   mentor: {
@@ -509,6 +473,4 @@ export const projectsApi = {
   submit: (projectId: string, studentWork: string, modelName?: string) =>
     api.post<ProjectFeedback>(`/math/projects/${projectId}/submit`, {
       work_text: studentWork,
-      model_name: modelName ?? "gpt-4o",
-    }),
-};
+     
