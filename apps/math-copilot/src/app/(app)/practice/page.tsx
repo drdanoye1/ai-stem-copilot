@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
-import { mathApi, getErrorMessage } from "@/lib/api";
+import { mathApi } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
 import { MathOutput } from "@/components/MathOutput";
 import { Loader2, ChevronDown, Sparkles, Bookmark, BookmarkCheck, Copy, CheckCircle2, Download } from "lucide-react";
@@ -208,7 +208,7 @@ export default function PracticePage() {
       setShowSaveInput(false);
       setTimeout(() => outputRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
     } catch (err: any) {
-      setError(getErrorMessage(err));
+      setError(err?.response?.data?.detail || "Problem generation failed.");
     } finally {
       setRunning(false);
     }

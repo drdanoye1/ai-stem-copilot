@@ -1,6 +1,6 @@
 "use client";
 import { useState, useRef } from "react";
-import { mathApi, getErrorMessage, type MathSession, type LearningObjective, type VizHint } from "@/lib/api";
+import { mathApi, type MathSession, type LearningObjective, type VizHint } from "@/lib/api";
 import { MathOutput } from "@/components/MathOutput";
 import { ReformulateBar } from "@/components/ReformulateBar";
 import { VizRenderer } from "@/components/viz";
@@ -241,7 +241,7 @@ export default function TheoryPage() {
       setSaveTitle(data.input_text);
       setVizHint(data.extra?.visualization_hints ?? null);
     }).catch(err => {
-      setError(getErrorMessage(err));
+      setError(err?.response?.data?.detail || "Theory generation failed. Please try again.");
     }).finally(() => setLoading(false));
 
     await Promise.all([objPromise, theoryPromise]);

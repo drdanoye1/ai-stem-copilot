@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import type { PlotParams } from "react-plotly.js";
-import { mathApi, getErrorMessage, type SimulateResponse, type SimParam } from "@/lib/api";
+import { mathApi, type SimulateResponse, type SimParam } from "@/lib/api";
 import { sampleWithParams } from "@/components/viz/mathEval";
 import { MathOutput } from "@/components/MathOutput";
 import { ReformulateBar } from "@/components/ReformulateBar";
@@ -125,7 +125,7 @@ export default function SimulationPage() {
       data.parameters.forEach(p => { defaults[p.name] = p.default; });
       setParamVals(defaults);
     } catch (e: any) {
-      setError(getErrorMessage(e));
+      setError(e?.response?.data?.detail || "Simulation generation failed.");
     } finally {
       setLoading(false);
     }

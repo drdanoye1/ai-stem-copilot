@@ -1,9 +1,9 @@
 # To redeploy, run in your terminal:
-# step 1: bash# Backend
-# Deploys backend error sanitisation
-
+# ste 1: bash# Backend
 cd backend
 railway up
 
 # step 2: Frontend change and run when new additions are made
-cd apps/mat
+cd apps/math-copilot
+npm run build
+vercel --prod

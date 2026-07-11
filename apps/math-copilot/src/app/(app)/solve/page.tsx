@@ -1,6 +1,6 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
-import { mathApi, getErrorMessage } from "@/lib/api";
+import { mathApi } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
 import { MathOutput } from "@/components/MathOutput";
 import { ReformulateBar } from "@/components/ReformulateBar";
@@ -158,7 +158,7 @@ export default function SolvePage() {
       setTimeout(() => outputRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
     } catch (err: any) {
       const detail = err?.response?.data?.detail;
-      setError(getErrorMessage(err));
+      setError(typeof detail === "string" ? detail : "Solver error. Check AI API keys are configured.");
     } finally {
       setRunning(false);
     }
