@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "math-copilot",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "apps/math-copilot", "run", "dev"],
+      "port": 3001
+    }
+  ]
+}

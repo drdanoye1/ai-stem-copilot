@@ -195,7 +195,7 @@ export default function DataExplorerPage() {
       { id: "open_meteo", label: "Open-Meteo", available: true, description: "Open-Meteo — free open-source weather API with historical climate data", indicators: [
         { id: "temperature_2m_mean", label: "Mean Temperature (°C)", unit: "°C" },
         { id: "precipitation_sum",   label: "Precipitation (mm)",   unit: "mm" },
-        { id: "windspeed_10m_max",   label: "Max Wind Speed (km/h)", unit: "km/h" },
+        { id: "wind_speed_10m_max",  label: "Max Wind Speed (km/h)", unit: "km/h" },
       ], cities: [
         { id: "new_york", name: "New York" }, { id: "london", name: "London" },
         { id: "paris", name: "Paris" }, { id: "tokyo", name: "Tokyo" },

@@ -339,8 +339,22 @@ function LabEnvironment({ lab, onBack }: { lab: LabConfig; onBack: () => void })
   const [params, setParams] = useState<Record<string, number>>({});
   const [checked, setChecked] = useState<Record<number, boolean>>({});
   const [notes, setNotes] = useState("");
+  const [notesSaved, setNotesSaved] = useState(false);
   const [insightVisible, setInsightVisible] = useState(false);
   const accent = CAT_COLORS[lab.category] ?? "#10b981";
+  const notesKey = `math-lab-notes:${lab.id}`;
+
+  // Load saved notes for this lab
+  useEffect(() => {
+    setNotes(localStorage.getItem(notesKey) ?? "");
+    setNotesSaved(false);
+  }, [notesKey]);
+
+  const handleNotesChange = (value: string) => {
+    setNotes(value);
+    localStorage.setItem(notesKey, value);
+    setNotesSaved(true);
+  };
 
   const loadSim = async () => {
     setLoading(true); setError(null);
@@ -558,11 +572,14 @@ function LabEnvironment({ lab, onBack }: { lab: LabConfig; onBack: () => void })
             <div className="flex items-center gap-2 mb-3">
               <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "#334155" }}>Lab Notebook</span>
               <span className="text-[9px]" style={{ color: "#334155" }}>— record your observations</span>
+              {notesSaved && (
+                <span className="text-[9px] ml-auto" style={{ color: "#34d399" }}>Saved on this device</span>
+              )}
             </div>
             <textarea
               rows={4}
               value={notes}
-              onChange={e => setNotes(e.target.value)}
+              onChange={e => handleNotesChange(e.target.value)}
               placeholder={`e.g. When I doubled L from 1m to 2m, the period increased from ___ to ___.\nThe relationship looks like a ________ function.\nOn the Moon (g=1.6), T would be ___...`}
               className="input-dark w-full resize-none text-xs leading-relaxed font-mono"
               style={{ minHeight: "100px" }}
