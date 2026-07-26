@@ -1,5 +1,6 @@
 # To redeploy, run in your terminal:
-# ste 1: bash# Backend
+# step 1: bash# Backend
+# Deploys backend error sanitisation
 cd backend
 railway up
 

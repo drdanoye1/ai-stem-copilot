@@ -249,4 +249,6 @@
     }
 
     /* Prevent horizontal scroll on page bodies */
-    body { over
+    body { overflow-x: hidden; }
+  }
+}
