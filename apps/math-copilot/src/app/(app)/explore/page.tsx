@@ -2,62 +2,23 @@
 import { useState, useEffect, useRef } from "react";
 import { mathApi, getErrorMessage, type SubjectInfo, type VizHint } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
+import { LEVELS, SUBLEVELS, CURRICULUM_CATEGORIES, CURRICULUM_REGISTRY, curriculumLabel } from "@/lib/personalization-taxonomy";
+import { GroupedSelect } from "@/components/GroupedSelect";
 import { MathOutput } from "@/components/MathOutput";
 import { ReformulateBar } from "@/components/ReformulateBar";
 import { VizRenderer } from "@/components/viz";
 import { BookOpen, Loader2, ChevronDown, Search, ChevronRight, Sparkles, Bookmark, BookmarkCheck, Copy, CheckCircle2, Download, Hash, Variable, Triangle, Waves, Activity, TrendingUp, BarChart2, Grid, Sigma, Network } from "lucide-react";
-import { ModelSelector, useModel } from "@/components/ModelSelector";
+import { ModelSelector, useAiMode } from "@/components/ModelSelector";
+import { GoalsPanel } from "@/components/goals/GoalsPanel";
 
 // Map backend icon-name strings → Lucide components
 const SUBJECT_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   Hash, Variable, Triangle, Waves, Activity, TrendingUp, BarChart2, Grid, Sigma, Network,
 };
 
-const LEVELS = [
-  { value: "middle_school",     label: "Middle School"     },
-  { value: "high_school",       label: "High School"       },
-  { value: "ap_ib",             label: "AP / IB"           },
-  { value: "community_college", label: "Community College" },
-  { value: "university",        label: "University"        },
-  { value: "graduate",          label: "Graduate"          },
-];
-
-
-const SUBLEVELS: Record<string, { value: string; label: string }[]> = {
-  middle_school: [
-    { value: "grade_6",  label: "Grade 6"  },
-    { value: "grade_7",  label: "Grade 7"  },
-    { value: "grade_8",  label: "Grade 8"  },
-  ],
-  high_school: [
-    { value: "grade_9",  label: "Grade 9"  },
-    { value: "grade_10", label: "Grade 10" },
-    { value: "grade_11", label: "Grade 11" },
-    { value: "grade_12", label: "Grade 12" },
-  ],
-  community_college: [
-    { value: "year_1", label: "Year 1" },
-    { value: "year_2", label: "Year 2" },
-  ],
-  university: [
-    { value: "year_1", label: "Year 1" },
-    { value: "year_2", label: "Year 2" },
-    { value: "year_3", label: "Year 3" },
-    { value: "year_4", label: "Year 4" },
-  ],
-};
-
-const CURRICULA = [
-  { value: "general",   label: "General"    },
-  { value: "waec",      label: "WAEC"       },
-  { value: "cambridge", label: "Cambridge"  },
-  { value: "ib",        label: "IB"         },
-  { value: "ap",        label: "AP"         },
-  { value: "gcse",      label: "GCSE"       },
-  { value: "sat",       label: "SAT / ACT"  },
-  { value: "abet",      label: "ABET"       },
-  { value: "tvet",      label: "TVET"       },
-];
+// Single source of truth: mirrors the account profile's Education Level
+// taxonomy (src/app/(app)/profile/page.tsx) so "Level" here always means
+// the same thing it means on the profile page.
 
 function Select({
   label, value, onChange, options,
@@ -88,8 +49,9 @@ export default function ExplorePage() {
   const [topic,       setTopic]      = useState("");
   const [level,       setLevel]      = useState(user?.level || "high_school");
   const [sublevel,    setSublevel]   = useState("");
-  const { model, setModel } = useModel();
+  const { model, setModel } = useAiMode();
   const [curriculum,  setCurriculum] = useState("general");
+  const [curriculumTrack, setCurriculumTrack] = useState("");
   const [examples,    setExamples]   = useState(3);
   const [running,       setRunning]       = useState(false);
   const [output,        setOutput]        = useState<string | null>(null);
@@ -104,6 +66,50 @@ export default function ExplorePage() {
   const [showExportMenu, setShowExportMenu] = useState(false);
   const outputRef = useRef<HTMLDivElement>(null);
   const exportRef = useRef<HTMLDivElement>(null);
+
+  // The `user?.level || "high_school"` initializer above only runs once, at
+  // first render — but the auth store loads asynchronously (fetchMe()), so
+  // `user` is frequently still null at that point and the fallback silently
+  // sticks forever. This effect catches the account level once it actually
+  // arrives, without clobbering a level the learner has since chosen here.
+  const appliedAccountLevelRef = useRef(false);
+  useEffect(() => {
+    if (!appliedAccountLevelRef.current && user?.level) {
+      setLevel(user.level);
+      appliedAccountLevelRef.current = true;
+    }
+  }, [user?.level]);
+
+  // Seed Grade/Year from the account's stored value once it's both loaded
+  // and valid for whatever level is currently resolved (waits on `level` so
+  // it runs after the account's Education Level has already been applied).
+  const appliedAccountSublevelRef = useRef(false);
+  useEffect(() => {
+    if (!appliedAccountSublevelRef.current && user?.grade_year && SUBLEVELS[level]?.some(o => o.value === user.grade_year)) {
+      setSublevel(user.grade_year);
+      appliedAccountSublevelRef.current = true;
+    }
+  }, [user?.grade_year, level]);
+
+  // Seed Curriculum (+ Track) from the account's stored value once it
+  // loads, without clobbering a curriculum the learner has since chosen
+  // here for this session.
+  const appliedAccountCurriculumRef = useRef(false);
+  useEffect(() => {
+    if (!appliedAccountCurriculumRef.current && user?.curriculum) {
+      setCurriculum(user.curriculum);
+      setCurriculumTrack(user.curriculum_track || "");
+      appliedAccountCurriculumRef.current = true;
+    }
+  }, [user?.curriculum, user?.curriculum_track]);
+
+  const selectCurriculum = (value: string) => {
+    setCurriculum(value);
+    if (!CURRICULUM_REGISTRY[value]?.trackOptions?.includes(curriculumTrack)) {
+      setCurriculumTrack("");
+    }
+  };
+  const curriculumTrackOptions = CURRICULUM_REGISTRY[curriculum]?.trackOptions ?? null;
 
   useEffect(() => {
     if (!showExportMenu) return;
@@ -131,7 +137,8 @@ export default function ExplorePage() {
         sublevel: sublevel || undefined,
         example_count: examples,
         curriculum,
-        model_name: model,
+        curriculum_track: curriculumTrack || undefined,
+        ai_mode: model,
         max_tokens: 4096,
       });
       setOutput(data.output_text || "");
@@ -237,6 +244,8 @@ export default function ExplorePage() {
         </p>
       </div>
 
+      <GoalsPanel subject={selected?.key} />
+
       {/* Subject picker */}
       {subjects.length > 0 && (
         <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-8 gap-2 mb-6">
@@ -292,11 +301,56 @@ export default function ExplorePage() {
 
         {/* Settings */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-5">
-          <Select label="Level"      value={level}      onChange={v => { setLevel(v); setSublevel(""); }} options={LEVELS} />
+          <div>
+            <Select label="Level" value={level} onChange={v => { setLevel(v); setSublevel(""); }} options={LEVELS} />
+            <p className="text-[10px] mt-1 flex items-center gap-1.5 flex-wrap" style={{ color: "#334155" }}>
+              <span>Profile: {LEVELS.find(l => l.value === user?.level)?.label ?? "—"}</span>
+              {user?.level && level !== user.level && (
+                <span className="px-1.5 py-0.5 rounded font-semibold" style={{ background: "rgba(251,191,36,0.15)", color: "#fbbf24" }}>
+                  Session override
+                </span>
+              )}
+            </p>
+          </div>
           {sublevelOpts.length > 0 && (
-            <Select label="Grade / Year" value={sublevel} onChange={setSublevel} options={sublevelOpts} />
+            <div>
+              <Select label="Grade / Year" value={sublevel} onChange={setSublevel} options={sublevelOpts} />
+              <p className="text-[10px] mt-1 flex items-center gap-1.5 flex-wrap" style={{ color: "#334155" }}>
+                <span>Profile: {sublevelOpts.find(o => o.value === user?.grade_year)?.label ?? "—"}</span>
+                {user?.grade_year && sublevel !== user.grade_year && (
+                  <span className="px-1.5 py-0.5 rounded font-semibold" style={{ background: "rgba(251,191,36,0.15)", color: "#fbbf24" }}>
+                    Session override
+                  </span>
+                )}
+              </p>
+            </div>
           )}
-          <Select label="Curriculum" value={curriculum} onChange={setCurriculum} options={CURRICULA} />
+          <div>
+            <GroupedSelect label="Curriculum" value={curriculum} onChange={selectCurriculum} groups={CURRICULUM_CATEGORIES} />
+            <p className="text-[10px] mt-1 flex items-center gap-1.5 flex-wrap" style={{ color: "#334155" }}>
+              <span>Profile: {curriculumLabel(user?.curriculum) ?? "—"}</span>
+              {user?.curriculum && curriculum !== user.curriculum && (
+                <span className="px-1.5 py-0.5 rounded font-semibold" style={{ background: "rgba(251,191,36,0.15)", color: "#fbbf24" }}>
+                  Session override
+                </span>
+              )}
+            </p>
+            {curriculumTrackOptions && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {curriculumTrackOptions.map((t) => (
+                  <button key={t} type="button" onClick={() => setCurriculumTrack(curriculumTrack === t ? "" : t)}
+                    className="px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all"
+                    style={{
+                      background: curriculumTrack === t ? "rgba(168,85,247,0.15)" : "rgba(255,255,255,0.04)",
+                      border: `1px solid ${curriculumTrack === t ? "rgba(168,85,247,0.35)" : "rgba(255,255,255,0.08)"}`,
+                      color: curriculumTrack === t ? "#a855f7" : "#475569",
+                    }}>
+                    {t}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <div>
             <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: "#475569" }}>Examples</label>
             <div className="flex gap-2">

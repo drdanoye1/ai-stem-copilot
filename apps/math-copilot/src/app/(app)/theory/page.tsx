@@ -1,6 +1,9 @@
 "use client";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { mathApi, getErrorMessage, type MathSession, type LearningObjective, type VizHint } from "@/lib/api";
+import { useAuthStore } from "@/store/auth";
+import { LEVELS, SUBLEVELS, CURRICULUM_CATEGORIES, CURRICULUM_REGISTRY, curriculumLabel } from "@/lib/personalization-taxonomy";
+import { GroupedSelect } from "@/components/GroupedSelect";
 import { MathOutput } from "@/components/MathOutput";
 import { ReformulateBar } from "@/components/ReformulateBar";
 import { VizRenderer } from "@/components/viz";
@@ -9,7 +12,8 @@ import {
   Bookmark, BookmarkCheck, Copy, CheckCircle2, Download, FlaskConical,
   ChevronRight, AlertCircle, BarChart3, Globe, Lightbulb, Camera,
 } from "lucide-react";
-import { ModelSelector, useModel } from "@/components/ModelSelector";
+import { ModelSelector, useAiMode } from "@/components/ModelSelector";
+import { GoalsPanel } from "@/components/goals/GoalsPanel";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -22,15 +26,9 @@ const EXAMPLES = [
   { subject: "geometry",       topic: "Euler's Formula: V − E + F = 2" },
 ];
 
-const LEVELS = [
-  { value: "middle_school",     label: "Middle School"     },
-  { value: "high_school",       label: "High School"       },
-  { value: "ap_ib",             label: "AP / IB"           },
-  { value: "community_college", label: "Community College" },
-  { value: "university",        label: "University"        },
-  { value: "graduate",          label: "Graduate"          },
-];
-
+// Single source of truth: mirrors the account profile's Education Level
+// taxonomy (src/app/(app)/profile/page.tsx) so "Education Level" here
+// always means the same thing it means on the profile page.
 const THEORY_LEVELS = [
   { value: "beginner",     label: "Beginner",     desc: "Plain language, intuitive proofs"      },
   { value: "intermediate", label: "Intermediate", desc: "Standard notation, full derivations"   },
@@ -38,24 +36,7 @@ const THEORY_LEVELS = [
   { value: "university",   label: "University",   desc: "Graduate-level rigour, abstract forms" },
 ];
 
-const SUBLEVELS: Record<string, { value: string; label: string }[]> = {
-  middle_school:     [{ value: "grade_6", label: "Grade 6" }, { value: "grade_7", label: "Grade 7" }, { value: "grade_8", label: "Grade 8" }],
-  high_school:       [{ value: "grade_9", label: "Grade 9" }, { value: "grade_10", label: "Grade 10" }, { value: "grade_11", label: "Grade 11" }, { value: "grade_12", label: "Grade 12" }],
-  community_college: [{ value: "year_1", label: "Year 1" }, { value: "year_2", label: "Year 2" }],
-  university:        [{ value: "year_1", label: "Year 1" }, { value: "year_2", label: "Year 2" }, { value: "year_3", label: "Year 3" }, { value: "year_4", label: "Year 4" }],
-};
 
-const CURRICULA = [
-  { value: "general",   label: "General"   },
-  { value: "waec",      label: "WAEC"      },
-  { value: "cambridge", label: "Cambridge" },
-  { value: "ib",        label: "IB"        },
-  { value: "ap",        label: "AP"        },
-  { value: "gcse",      label: "GCSE"      },
-  { value: "sat",       label: "SAT / ACT" },
-  { value: "abet",      label: "ABET"      },
-  { value: "tvet",      label: "TVET"      },
-];
 
 const SUBJECTS = [
   { value: "algebra",                label: "Algebra"                  },
@@ -179,13 +160,15 @@ function PrerequisiteChips({ prereqs }: { prereqs: string[] }) {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function TheoryPage() {
+  const { user } = useAuthStore();
   const [topic,        setTopic]       = useState("");
   const [subject,      setSubject]     = useState("algebra");
   const [level,        setLevel]       = useState("high_school");
   const [sublevel,     setSublevel]    = useState("");
   const [theoryLevel,  setTheoryLevel] = useState("intermediate");
   const [curriculum,   setCurriculum]  = useState("general");
-  const { model, setModel } = useModel();
+  const [curriculumTrack, setCurriculumTrack] = useState("");
+  const { model, setModel } = useAiMode();
 
   const [loading,      setLoading]     = useState(false);
   const [objLoading,   setObjLoading]  = useState(false);
@@ -205,6 +188,48 @@ export default function TheoryPage() {
   const outputRef = useRef<HTMLDivElement>(null);
   const sublevelOpts = SUBLEVELS[level] || [];
 
+  // Default Education Level to the account's Education Level (the ground
+  // truth) once it loads. Doesn't clobber a level the learner has since
+  // changed here, and this effect only runs once.
+  const appliedAccountLevelRef = useRef(false);
+  useEffect(() => {
+    if (!appliedAccountLevelRef.current && user?.level) {
+      setLevel(user.level);
+      appliedAccountLevelRef.current = true;
+    }
+  }, [user?.level]);
+
+  // Seed Grade/Year from the account's stored value once it's both loaded
+  // and valid for whatever level is currently resolved (waits on `level` so
+  // it runs after the account's Education Level has already been applied).
+  const appliedAccountSublevelRef = useRef(false);
+  useEffect(() => {
+    if (!appliedAccountSublevelRef.current && user?.grade_year && SUBLEVELS[level]?.some(o => o.value === user.grade_year)) {
+      setSublevel(user.grade_year);
+      appliedAccountSublevelRef.current = true;
+    }
+  }, [user?.grade_year, level]);
+
+  // Seed Curriculum (+ Track) from the account's stored value once it
+  // loads, without clobbering a curriculum the learner has since chosen
+  // here for this session.
+  const appliedAccountCurriculumRef = useRef(false);
+  useEffect(() => {
+    if (!appliedAccountCurriculumRef.current && user?.curriculum) {
+      setCurriculum(user.curriculum);
+      setCurriculumTrack(user.curriculum_track || "");
+      appliedAccountCurriculumRef.current = true;
+    }
+  }, [user?.curriculum, user?.curriculum_track]);
+
+  const selectCurriculum = (value: string) => {
+    setCurriculum(value);
+    if (!CURRICULUM_REGISTRY[value]?.trackOptions?.includes(curriculumTrack)) {
+      setCurriculumTrack("");
+    }
+  };
+  const curriculumTrackOptions = CURRICULUM_REGISTRY[curriculum]?.trackOptions ?? null;
+
   const generate = async () => {
     if (!topic.trim()) return;
     setLoading(true);
@@ -222,7 +247,8 @@ export default function TheoryPage() {
       subject,
       level,
       curriculum,
-      model_name: model,
+      curriculum_track: curriculumTrack || undefined,
+      ai_mode: model,
     }).then(({ data }) => {
       setObjectives(data.objectives);
       setObjLoading(false);
@@ -235,7 +261,8 @@ export default function TheoryPage() {
       sublevel: sublevel || undefined,
       theory_level: theoryLevel,
       curriculum,
-      model_name: model,
+      curriculum_track: curriculumTrack || undefined,
+      ai_mode: model,
     }).then(({ data }) => {
       setSession(data);
       setSaveTitle(data.input_text);
@@ -300,6 +327,8 @@ export default function TheoryPage() {
         </p>
       </div>
 
+      <GoalsPanel subject={subject} />
+
       {/* Input card */}
       <div className="rounded-2xl p-6 mb-6"
         style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}>
@@ -357,12 +386,57 @@ export default function TheoryPage() {
         {/* Grid of selectors */}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-5">
           <Select label="Subject" value={subject} onChange={setSubject} options={SUBJECTS} />
-          <Select label="Education Level" value={level} onChange={v => { setLevel(v); setSublevel(""); }} options={LEVELS} />
+          <div>
+            <Select label="Education Level" value={level} onChange={v => { setLevel(v); setSublevel(""); }} options={LEVELS} />
+            <p className="text-[10px] mt-1 flex items-center gap-1.5 flex-wrap" style={{ color: "#334155" }}>
+              <span>Profile: {LEVELS.find(l => l.value === user?.level)?.label ?? "—"}</span>
+              {user?.level && level !== user.level && (
+                <span className="px-1.5 py-0.5 rounded font-semibold" style={{ background: "rgba(251,191,36,0.15)", color: "#fbbf24" }}>
+                  Session override
+                </span>
+              )}
+            </p>
+          </div>
           {sublevelOpts.length > 0 && (
-            <Select label="Year / Grade" value={sublevel} onChange={setSublevel}
-              options={[{ value: "", label: "— Any —" }, ...sublevelOpts]} />
+            <div>
+              <Select label="Year / Grade" value={sublevel} onChange={setSublevel}
+                options={[{ value: "", label: "— Any —" }, ...sublevelOpts]} />
+              <p className="text-[10px] mt-1 flex items-center gap-1.5 flex-wrap" style={{ color: "#334155" }}>
+                <span>Profile: {sublevelOpts.find(o => o.value === user?.grade_year)?.label ?? "—"}</span>
+                {user?.grade_year && sublevel !== user.grade_year && (
+                  <span className="px-1.5 py-0.5 rounded font-semibold" style={{ background: "rgba(251,191,36,0.15)", color: "#fbbf24" }}>
+                    Session override
+                  </span>
+                )}
+              </p>
+            </div>
           )}
-          <Select label="Curriculum" value={curriculum} onChange={setCurriculum} options={CURRICULA} />
+          <div>
+            <GroupedSelect label="Curriculum" value={curriculum} onChange={selectCurriculum} groups={CURRICULUM_CATEGORIES} />
+            <p className="text-[10px] mt-1 flex items-center gap-1.5 flex-wrap" style={{ color: "#334155" }}>
+              <span>Profile: {curriculumLabel(user?.curriculum) ?? "—"}</span>
+              {user?.curriculum && curriculum !== user.curriculum && (
+                <span className="px-1.5 py-0.5 rounded font-semibold" style={{ background: "rgba(251,191,36,0.15)", color: "#fbbf24" }}>
+                  Session override
+                </span>
+              )}
+            </p>
+            {curriculumTrackOptions && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {curriculumTrackOptions.map((t) => (
+                  <button key={t} type="button" onClick={() => setCurriculumTrack(curriculumTrack === t ? "" : t)}
+                    className="px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all"
+                    style={{
+                      background: curriculumTrack === t ? "rgba(168,85,247,0.15)" : "rgba(255,255,255,0.04)",
+                      border: `1px solid ${curriculumTrack === t ? "rgba(168,85,247,0.35)" : "rgba(255,255,255,0.08)"}`,
+                      color: curriculumTrack === t ? "#a855f7" : "#475569",
+                    }}>
+                    {t}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <div>
             <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: "#475569" }}>AI Model</label>
             <ModelSelector value={model} onChange={setModel} compact />

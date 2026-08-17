@@ -361,7 +361,7 @@ function LabEnvironment({ lab, onBack }: { lab: LabConfig; onBack: () => void })
     try {
       const { data } = await mathApi.simulate({
         topic: lab.topic, subject: "general", level: "university",
-        curriculum: "general", model_name: "gpt-4o",
+        curriculum: "general", ai_mode: "smart",
       });
       setSim(data);
       const defaults: Record<string, number> = {};

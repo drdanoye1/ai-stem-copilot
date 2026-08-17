@@ -2,10 +2,13 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { mathApi, type VizCard } from "@/lib/api";
+import { useAuthStore } from "@/store/auth";
+import { LEVELS, CURRICULUM_CATEGORIES, CURRICULUM_REGISTRY, curriculumLabel } from "@/lib/personalization-taxonomy";
+import { GroupedSelect } from "@/components/GroupedSelect";
 import { VizRenderer } from "@/components/viz";
 import { ReformulateBar } from "@/components/ReformulateBar";
 import { BarChart3, Loader2, ChevronDown, Sparkles, ChevronRight, GraduationCap, FlaskConical, Globe, Lightbulb } from "lucide-react";
-import { ModelSelector, useModel } from "@/components/ModelSelector";
+import { ModelSelector, useAiMode } from "@/components/ModelSelector";
 
 const EXAMPLES = [
   { subject: "algebra",        topic: "Quadratic Functions and Their Transformations" },
@@ -16,14 +19,6 @@ const EXAMPLES = [
   { subject: "calculus",       topic: "Riemann Sums and Definite Integrals" },
 ];
 
-const LEVELS = [
-  { value: "middle_school",     label: "Middle School"     },
-  { value: "high_school",       label: "High School"       },
-  { value: "ap_ib",             label: "AP / IB"           },
-  { value: "community_college", label: "Community College" },
-  { value: "university",        label: "University"        },
-  { value: "graduate",          label: "Graduate"          },
-];
 const SUBJECTS = [
   { value: "algebra",                label: "Algebra"                  },
   { value: "calculus",               label: "Calculus"                 },
@@ -37,13 +32,6 @@ const SUBJECTS = [
   { value: "number_theory",          label: "Number Theory"            },
   { value: "other",                  label: "Other"                    },
 ];
-const CURRICULA = [
-  { value: "general", label: "General" }, { value: "waec", label: "WAEC" },
-  { value: "cambridge", label: "Cambridge" }, { value: "ib", label: "IB" },
-  { value: "ap", label: "AP" }, { value: "gcse", label: "GCSE" },
-  { value: "sat", label: "SAT / ACT" }, { value: "abet", label: "ABET" },
-];
-
 function Select({ label, value, onChange, options }: {
   label: string; value: string; onChange: (v: string) => void;
   options: { value: string; label: string }[];
@@ -66,22 +54,55 @@ function Select({ label, value, onChange, options }: {
 
 export default function VisualizationPage() {
   const params = useSearchParams();
+  const { user } = useAuthStore();
   const [topic,      setTopic]      = useState(params.get("topic") ?? "");
   const [subject,    setSubject]    = useState(params.get("subject") ?? "algebra");
   const [level,      setLevel]      = useState(params.get("level") ?? "high_school");
   const [curriculum, setCurriculum] = useState(params.get("curriculum") ?? "general");
-  const { model, setModel } = useModel();
+  const [curriculumTrack, setCurriculumTrack] = useState("");
+  const { model, setModel } = useAiMode();
   const [loading,    setLoading]    = useState(false);
   const [charts,     setCharts]     = useState<VizCard[] | null>(null);
   const [error,      setError]      = useState<string | null>(null);
   const [topicLabel, setTopicLabel] = useState("");
   const didAutoRun = useRef(false);
 
+  // Default Level to the account's Education Level (the ground truth) once
+  // it loads — but never override an explicit ?level= deep link, since that
+  // reflects a deliberate choice carried over from another page.
+  const appliedAccountLevelRef = useRef(false);
+  useEffect(() => {
+    if (!appliedAccountLevelRef.current && !params.get("level") && user?.level) {
+      setLevel(user.level);
+      appliedAccountLevelRef.current = true;
+    }
+  }, [user?.level]);
+
+  // Seed Curriculum (+ Track) from the account's stored value once it
+  // loads — but never override an explicit ?curriculum= deep link, since
+  // that reflects a deliberate choice carried over from another page.
+  const appliedAccountCurriculumRef = useRef(false);
+  useEffect(() => {
+    if (!appliedAccountCurriculumRef.current && !params.get("curriculum") && user?.curriculum) {
+      setCurriculum(user.curriculum);
+      setCurriculumTrack(user.curriculum_track || "");
+      appliedAccountCurriculumRef.current = true;
+    }
+  }, [user?.curriculum, user?.curriculum_track]);
+
+  const selectCurriculum = (value: string) => {
+    setCurriculum(value);
+    if (!CURRICULUM_REGISTRY[value]?.trackOptions?.includes(curriculumTrack)) {
+      setCurriculumTrack("");
+    }
+  };
+  const curriculumTrackOptions = CURRICULUM_REGISTRY[curriculum]?.trackOptions ?? null;
+
   const generate = async (t = topic) => {
     if (!t.trim()) return;
     setLoading(true); setError(null); setCharts(null);
     try {
-      const { data } = await mathApi.visualize({ topic: t.trim(), subject, level, curriculum, model_name: model });
+      const { data } = await mathApi.visualize({ topic: t.trim(), subject, level, curriculum, curriculum_track: curriculumTrack || undefined, ai_mode: model });
       setCharts(data.charts);
       setTopicLabel(data.topic);
     } catch (e: any) {
@@ -143,8 +164,43 @@ export default function VisualizationPage() {
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
           <Select label="Subject"    value={subject}    onChange={setSubject}    options={SUBJECTS}  />
-          <Select label="Level"      value={level}      onChange={setLevel}      options={LEVELS}    />
-          <Select label="Curriculum" value={curriculum} onChange={setCurriculum} options={CURRICULA} />
+          <div>
+            <Select label="Level" value={level} onChange={setLevel} options={LEVELS} />
+            <p className="text-[10px] mt-1 flex items-center gap-1.5 flex-wrap" style={{ color: "#334155" }}>
+              <span>Profile: {LEVELS.find(l => l.value === user?.level)?.label ?? "—"}</span>
+              {user?.level && level !== user.level && (
+                <span className="px-1.5 py-0.5 rounded font-semibold" style={{ background: "rgba(251,191,36,0.15)", color: "#fbbf24" }}>
+                  Session override
+                </span>
+              )}
+            </p>
+          </div>
+          <div>
+            <GroupedSelect label="Curriculum" value={curriculum} onChange={selectCurriculum} groups={CURRICULUM_CATEGORIES} />
+            <p className="text-[10px] mt-1 flex items-center gap-1.5 flex-wrap" style={{ color: "#334155" }}>
+              <span>Profile: {curriculumLabel(user?.curriculum) ?? "—"}</span>
+              {user?.curriculum && curriculum !== user.curriculum && (
+                <span className="px-1.5 py-0.5 rounded font-semibold" style={{ background: "rgba(251,191,36,0.15)", color: "#fbbf24" }}>
+                  Session override
+                </span>
+              )}
+            </p>
+            {curriculumTrackOptions && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {curriculumTrackOptions.map((t) => (
+                  <button key={t} type="button" onClick={() => setCurriculumTrack(curriculumTrack === t ? "" : t)}
+                    className="px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all"
+                    style={{
+                      background: curriculumTrack === t ? "rgba(168,85,247,0.15)" : "rgba(255,255,255,0.04)",
+                      border: `1px solid ${curriculumTrack === t ? "rgba(168,85,247,0.35)" : "rgba(255,255,255,0.08)"}`,
+                      color: curriculumTrack === t ? "#a855f7" : "#475569",
+                    }}>
+                    {t}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <div>
             <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: "#475569" }}>AI Model</label>
             <ModelSelector value={model} onChange={setModel} compact />
