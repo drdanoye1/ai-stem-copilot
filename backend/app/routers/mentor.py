@@ -17,6 +17,10 @@ from app.database import get_db
 from app.models.mentor import MentorConversation
 from app.models.user import User
 from app.routers.auth import get_current_user
+from app.services.personalization import build_personalization_context
+from app.models.evidence import EvidenceSource
+from app.services.evidence_engine import log_evidence_event
+from app.services.model_registry import resolve_text_mode, get_deployment_id
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -69,7 +73,7 @@ SVG rules:
 
 Topic: {topic}
 Subject: {subject}
-Education level: {level}
+{personalization}
 
 After 6–10 exchanges, if the learner has demonstrated genuine understanding, begin your response
 with the exact token [COMPLETE] followed by a warm one-sentence celebration and the key insight.
@@ -96,13 +100,15 @@ class StartRequest(BaseModel):
     topic: str
     subject: str = "algebra"
     level: str = "high_school"
-    model_name: str = "gpt-4o"
+    curriculum: Optional[str] = None
+    curriculum_track: Optional[str] = None
+    ai_mode: str = "smart"
 
 
 class RespondRequest(BaseModel):
     session_id: str
     user_message: str
-    model_name: str = "gpt-4o"
+    ai_mode: str = "smart"
 
 
 class MentorMessage(BaseModel):
@@ -116,6 +122,7 @@ class MentorSessionOut(BaseModel):
     topic: str
     subject: str
     level: str
+    curriculum: Optional[str] = None
     messages: List[MentorMessage]
     turn_count: int
     is_complete: bool
@@ -123,32 +130,29 @@ class MentorSessionOut(BaseModel):
 
 
 # ── Multi-turn AI dispatch ────────────────────────────────────────────────────
+#
+# Provider/deployment resolution now sources from the shared Model Capability
+# Registry™ (app.services.model_registry) — the same registry math.py's
+# dispatch() uses. This used to be an independently-drifted copy (different
+# Anthropic API version ids than math.py, e.g. claude-sonnet-4-6 here vs.
+# claude-sonnet-4-5 in math.py) — Mentor could silently be calling a different
+# Claude version than Solve/Practice/Theory. mentor_call() keeps its own
+# multi-turn (history-array) request shape, which math.py's single-turn
+# dispatch() doesn't support, but resolves the model exactly the same way.
+# Note: like before, Mentor only supports OpenAI/Anthropic — a Gemini-backed
+# public mode ("vision"/"speed") falls through to the OpenAI branch below,
+# same pre-existing limitation as the old MODEL_PROVIDER_MAP (which also had
+# no Google entries).
 
-MODEL_PROVIDER_MAP = {
-    "gpt-4o":            "openai",
-    "gpt-4o-mini":       "openai",
-    "claude-sonnet-4":   "anthropic",
-    "claude-haiku-4":    "anthropic",
-    "claude-opus-4":     "anthropic",
-    "claude-3-5-sonnet": "anthropic",
-}
-
-ANTHROPIC_MODEL_MAP = {
-    "claude-sonnet-4":   "claude-sonnet-4-6",
-    "claude-haiku-4":    "claude-haiku-4-5-20251001",
-    "claude-opus-4":     "claude-opus-4-8",
-    "claude-3-5-sonnet": "claude-sonnet-4-6",
-}
-
-
-async def mentor_call(system: str, history: list[dict], model: str) -> str:
+async def mentor_call(system: str, history: list[dict], ai_mode: str) -> str:
     """Multi-turn AI call — history is [{role: 'user'|'assistant', content: str}]."""
-    provider = MODEL_PROVIDER_MAP.get(model, "openai")
+    entry = resolve_text_mode(ai_mode)
+    provider = entry.provider
 
     if provider == "anthropic":
         if not ANTHROPIC_AVAILABLE or not getattr(settings, "ANTHROPIC_API_KEY", ""):
             raise HTTPException(500, "Anthropic not configured.")
-        api_model = ANTHROPIC_MODEL_MAP.get(model, model)
+        api_model = get_deployment_id(entry.id)
         client = anthropic_sdk.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY, timeout=60.0)
         resp = await client.messages.create(
             model=api_model,
@@ -164,7 +168,7 @@ async def mentor_call(system: str, history: list[dict], model: str) -> str:
     client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY, timeout=60.0)
     oai_msgs = [{"role": "system", "content": system}] + history
     resp = await client.chat.completions.create(
-        model=model,
+        model=entry.id,
         messages=oai_msgs,
         max_tokens=800,
         temperature=0.7,
@@ -188,6 +192,7 @@ def _session_out(conv: MentorConversation) -> MentorSessionOut:
         topic=conv.topic,
         subject=conv.subject,
         level=conv.level,
+        curriculum=conv.curriculum,
         messages=[
             MentorMessage(
                 role=m["role"],
@@ -214,10 +219,16 @@ async def start_session(
     Begin a new Socratic mentor session.
     Returns the first guiding question from the AI Mentor.
     """
+    personalization = build_personalization_context(
+        current_user,
+        level_override=req.level,
+        curriculum_override=req.curriculum,
+        curriculum_track_override=req.curriculum_track,
+    ).prompt_block()
     system = MENTOR_SYSTEM.format(
         topic=req.topic,
         subject=req.subject.replace("_", " ").title(),
-        level=req.level.replace("_", " ").title(),
+        personalization=personalization,
     )
 
     # Opening prompt — seed the first question
@@ -230,7 +241,7 @@ async def start_session(
         mentor_reply = await mentor_call(
             system=system,
             history=[{"role": "user", "content": opening_user_msg}],
-            model=req.model_name,
+            ai_mode=req.ai_mode,
         )
     except HTTPException:
         raise
@@ -256,7 +267,8 @@ async def start_session(
         topic=req.topic,
         subject=req.subject,
         level=req.level,
-        model_name=req.model_name,
+        curriculum=req.curriculum,
+        model_name=resolve_text_mode(req.ai_mode).id,
         messages=stored_messages,
         turn_count=1,
         is_complete=is_complete,
@@ -290,10 +302,15 @@ async def respond(
     if conv.is_complete:
         raise HTTPException(400, "This session is already complete.")
 
+    personalization = build_personalization_context(
+        current_user,
+        level_override=conv.level,
+        curriculum_override=conv.curriculum,
+    ).prompt_block()
     system = MENTOR_SYSTEM.format(
         topic=conv.topic,
         subject=conv.subject.replace("_", " ").title(),
-        level=conv.level.replace("_", " ").title(),
+        personalization=personalization,
     )
 
     # Build full history for the AI
@@ -306,7 +323,7 @@ async def respond(
         mentor_reply = await mentor_call(
             system=system,
             history=history,
-            model=req.model_name or conv.model_name,
+            ai_mode=req.ai_mode or conv.model_name,
         )
     except HTTPException:
         raise
@@ -338,6 +355,12 @@ async def respond(
 
     await db.commit()
     await db.refresh(conv)
+
+    await log_evidence_event(
+        db, current_user, EvidenceSource.mentor,
+        subject=conv.subject, topic=conv.topic,
+    )
+
     return _session_out(conv)
 
 

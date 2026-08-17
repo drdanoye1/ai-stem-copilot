@@ -1,10 +1,13 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
-import { mathApi, getErrorMessage } from "@/lib/api";
+import { mathApi, outcomesApi, getErrorMessage, StructuredPracticeProblem, PracticeSubmitResult } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
+import { LEVELS, SUBLEVELS, CURRICULUM_CATEGORIES, CURRICULUM_REGISTRY, curriculumLabel } from "@/lib/personalization-taxonomy";
+import { GroupedSelect } from "@/components/GroupedSelect";
 import { MathOutput } from "@/components/MathOutput";
-import { Loader2, ChevronDown, Sparkles, Bookmark, BookmarkCheck, Copy, CheckCircle2, Download } from "lucide-react";
-import { ModelSelector, useModel } from "@/components/ModelSelector";
+import { Loader2, ChevronDown, Sparkles, Bookmark, BookmarkCheck, Copy, CheckCircle2, Download, XCircle, Eye, EyeOff, ClipboardCheck } from "lucide-react";
+import { ModelSelector, useAiMode } from "@/components/ModelSelector";
+import { GoalsPanel } from "@/components/goals/GoalsPanel";
 
 const SUBJECTS = [
   { value: "algebra",                label: "Algebra"                  },
@@ -17,50 +20,7 @@ const SUBJECTS = [
   { value: "discrete_math",          label: "Discrete Math"            },
 ];
 
-const LEVELS = [
-  { value: "middle_school",     label: "Middle School"     },
-  { value: "high_school",       label: "High School"       },
-  { value: "ap_ib",             label: "AP / IB"           },
-  { value: "community_college", label: "Community College" },
-  { value: "university",        label: "University"        },
-  { value: "graduate",          label: "Graduate"          },
-];
 
-const SUBLEVELS: Record<string, { value: string; label: string }[]> = {
-  middle_school: [
-    { value: "grade_6",  label: "Grade 6"  },
-    { value: "grade_7",  label: "Grade 7"  },
-    { value: "grade_8",  label: "Grade 8"  },
-  ],
-  high_school: [
-    { value: "grade_9",  label: "Grade 9"  },
-    { value: "grade_10", label: "Grade 10" },
-    { value: "grade_11", label: "Grade 11" },
-    { value: "grade_12", label: "Grade 12" },
-  ],
-  community_college: [
-    { value: "year_1", label: "Year 1" },
-    { value: "year_2", label: "Year 2" },
-  ],
-  university: [
-    { value: "year_1", label: "Year 1" },
-    { value: "year_2", label: "Year 2" },
-    { value: "year_3", label: "Year 3" },
-    { value: "year_4", label: "Year 4" },
-  ],
-};
-
-const CURRICULA = [
-  { value: "general",   label: "General"    },
-  { value: "waec",      label: "WAEC"       },
-  { value: "cambridge", label: "Cambridge"  },
-  { value: "ib",        label: "IB"         },
-  { value: "ap",        label: "AP"         },
-  { value: "gcse",      label: "GCSE"       },
-  { value: "sat",       label: "SAT / ACT"  },
-  { value: "abet",      label: "ABET"       },
-  { value: "tvet",      label: "TVET"       },
-];
 
 const DIFFICULTIES = [
   { value: "easy",   label: "Easy",   accent: "#34d399", glow: "rgba(52,211,153,0.18)",  border: "rgba(52,211,153,0.40)"  },
@@ -99,9 +59,10 @@ export default function PracticePage() {
   const [level,      setLevel]      = useState(user?.level || "high_school");
   const [sublevel,   setSublevel]   = useState("");
   const [curriculum, setCurriculum] = useState("general");
+  const [curriculumTrack, setCurriculumTrack] = useState("");
   const [difficulty, setDifficulty] = useState("medium");
   const [count,      setCount]      = useState(5);
-  const { model, setModel } = useModel();
+  const { model, setModel } = useAiMode();
   const [running,       setRunning]       = useState(false);
   const [output,        setOutput]        = useState<string | null>(null);
   const [error,         setError]         = useState<string | null>(null);
@@ -114,6 +75,59 @@ export default function PracticePage() {
   const [showExportMenu, setShowExportMenu] = useState(false);
   const outputRef = useRef<HTMLDivElement>(null);
   const exportRef = useRef<HTMLDivElement>(null);
+
+  // ── Check My Work (Practice Check™ — Part II) ────────────────────────────────
+  const [checkProblems, setCheckProblems] = useState<StructuredPracticeProblem[] | null>(null);
+  const [checkLoading,  setCheckLoading]  = useState(false);
+  const [checkError,    setCheckError]    = useState<string | null>(null);
+  const [checkAnswers,  setCheckAnswers]  = useState<Record<string, string>>({});
+  const [checkRevealed, setCheckRevealed] = useState<Record<string, boolean>>({});
+  const [checkResults,  setCheckResults]  = useState<Record<string, PracticeSubmitResult>>({});
+  const [checkSubmitting, setCheckSubmitting] = useState<Record<string, boolean>>({});
+
+  // The `user?.level || "high_school"` initializer above only runs once, at
+  // first render — but the auth store loads asynchronously (fetchMe()), so
+  // `user` is frequently still null at that point and the fallback silently
+  // sticks forever. This effect catches the account level once it actually
+  // arrives, without clobbering a level the learner has since chosen here.
+  const appliedAccountLevelRef = useRef(false);
+  useEffect(() => {
+    if (!appliedAccountLevelRef.current && user?.level) {
+      setLevel(user.level);
+      appliedAccountLevelRef.current = true;
+    }
+  }, [user?.level]);
+
+  // Seed Grade/Year from the account's stored value once it's both loaded
+  // and valid for whatever level is currently resolved (waits on `level` so
+  // it runs after the account's Education Level has already been applied).
+  const appliedAccountSublevelRef = useRef(false);
+  useEffect(() => {
+    if (!appliedAccountSublevelRef.current && user?.grade_year && SUBLEVELS[level]?.some(o => o.value === user.grade_year)) {
+      setSublevel(user.grade_year);
+      appliedAccountSublevelRef.current = true;
+    }
+  }, [user?.grade_year, level]);
+
+  // Seed Curriculum (+ Track) from the account's stored value once it
+  // loads, without clobbering a curriculum the learner has since chosen
+  // here for this session.
+  const appliedAccountCurriculumRef = useRef(false);
+  useEffect(() => {
+    if (!appliedAccountCurriculumRef.current && user?.curriculum) {
+      setCurriculum(user.curriculum);
+      setCurriculumTrack(user.curriculum_track || "");
+      appliedAccountCurriculumRef.current = true;
+    }
+  }, [user?.curriculum, user?.curriculum_track]);
+
+  const selectCurriculum = (value: string) => {
+    setCurriculum(value);
+    if (!CURRICULUM_REGISTRY[value]?.trackOptions?.includes(curriculumTrack)) {
+      setCurriculumTrack("");
+    }
+  };
+  const curriculumTrackOptions = CURRICULUM_REGISTRY[curriculum]?.trackOptions ?? null;
 
   useEffect(() => {
     if (!showExportMenu) return;
@@ -198,8 +212,8 @@ export default function PracticePage() {
     try {
       const { data } = await mathApi.practice({
         subject, topic: topic.trim() || subject, level,
-        sublevel: sublevel || undefined, difficulty, count, curriculum,
-        model_name: model, max_tokens: 4096,
+        sublevel: sublevel || undefined, difficulty, count, curriculum, curriculum_track: curriculumTrack || undefined,
+        ai_mode: model, max_tokens: 4096,
       });
       setOutput(data.output_text || "");
       setSessionId(data.id);
@@ -219,6 +233,52 @@ export default function PracticePage() {
     navigator.clipboard.writeText(output);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  // ── Check My Work (Practice Check™ — Part II) ────────────────────────────────
+  // A small, additive, gradable flow — separate from the markdown practice
+  // set above. Generates 3 structured problems with a single unambiguous
+  // answer each, and grades what the learner submits (two-tier: exact
+  // match, then AI-graded equivalence). Whether "Reveal solution" was
+  // clicked before submitting is tracked here and sent with the answer —
+  // that's how independence is derived, not from a self-report checkbox.
+  const handleGenerateCheck = async () => {
+    setCheckLoading(true); setCheckError(null);
+    setCheckAnswers({}); setCheckRevealed({}); setCheckResults({}); setCheckSubmitting({});
+    try {
+      const { data } = await outcomesApi.generateStructuredPractice({
+        subject, topic: topic.trim() || undefined, level, difficulty,
+        curriculum, curriculum_track: curriculumTrack || undefined, ai_mode: model,
+      });
+      setCheckProblems(data);
+    } catch (err: any) {
+      setCheckError(getErrorMessage(err));
+    } finally {
+      setCheckLoading(false);
+    }
+  };
+
+  const handleRevealSolution = (problemId: string) => {
+    // Only the *first* reveal matters for independence — clicking again
+    // (e.g. to re-check) shouldn't un-flip an already-recorded reveal.
+    setCheckRevealed(prev => ({ ...prev, [problemId]: true }));
+  };
+
+  const handleSubmitCheckAnswer = async (problemId: string) => {
+    const answer = (checkAnswers[problemId] || "").trim();
+    if (!answer) return;
+    setCheckSubmitting(prev => ({ ...prev, [problemId]: true }));
+    try {
+      const { data } = await outcomesApi.submitPracticeAnswer(problemId, {
+        submitted_answer: answer,
+        revealed_solution_first: !!checkRevealed[problemId],
+      });
+      setCheckResults(prev => ({ ...prev, [problemId]: data }));
+    } catch (err: any) {
+      setCheckError(getErrorMessage(err));
+    } finally {
+      setCheckSubmitting(prev => ({ ...prev, [problemId]: false }));
+    }
   };
 
   const sublevelOpts = SUBLEVELS[level] || [];
@@ -246,6 +306,8 @@ export default function PracticePage() {
         </p>
       </div>
 
+      <GoalsPanel subject={subject} />
+
       {/* Input card */}
       <div className="rounded-2xl p-6 mb-6"
         style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}>
@@ -268,11 +330,56 @@ export default function PracticePage() {
         {/* Settings */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-5">
           <Select label="Subject"    value={subject}    onChange={setSubject}    options={SUBJECTS} />
-          <Select label="Level"      value={level}      onChange={v => { setLevel(v); setSublevel(""); }} options={LEVELS} />
+          <div>
+            <Select label="Level" value={level} onChange={v => { setLevel(v); setSublevel(""); }} options={LEVELS} />
+            <p className="text-[10px] mt-1 flex items-center gap-1.5 flex-wrap" style={{ color: "#334155" }}>
+              <span>Profile: {LEVELS.find(l => l.value === user?.level)?.label ?? "—"}</span>
+              {user?.level && level !== user.level && (
+                <span className="px-1.5 py-0.5 rounded font-semibold" style={{ background: "rgba(251,191,36,0.15)", color: "#fbbf24" }}>
+                  Session override
+                </span>
+              )}
+            </p>
+          </div>
           {sublevelOpts.length > 0 && (
-            <Select label="Grade / Year" value={sublevel} onChange={setSublevel} options={sublevelOpts} />
+            <div>
+              <Select label="Grade / Year" value={sublevel} onChange={setSublevel} options={sublevelOpts} />
+              <p className="text-[10px] mt-1 flex items-center gap-1.5 flex-wrap" style={{ color: "#334155" }}>
+                <span>Profile: {sublevelOpts.find(o => o.value === user?.grade_year)?.label ?? "—"}</span>
+                {user?.grade_year && sublevel !== user.grade_year && (
+                  <span className="px-1.5 py-0.5 rounded font-semibold" style={{ background: "rgba(251,191,36,0.15)", color: "#fbbf24" }}>
+                    Session override
+                  </span>
+                )}
+              </p>
+            </div>
           )}
-          <Select label="Curriculum" value={curriculum} onChange={setCurriculum} options={CURRICULA} />
+          <div>
+            <GroupedSelect label="Curriculum" value={curriculum} onChange={selectCurriculum} groups={CURRICULUM_CATEGORIES} />
+            <p className="text-[10px] mt-1 flex items-center gap-1.5 flex-wrap" style={{ color: "#334155" }}>
+              <span>Profile: {curriculumLabel(user?.curriculum) ?? "—"}</span>
+              {user?.curriculum && curriculum !== user.curriculum && (
+                <span className="px-1.5 py-0.5 rounded font-semibold" style={{ background: "rgba(251,191,36,0.15)", color: "#fbbf24" }}>
+                  Session override
+                </span>
+              )}
+            </p>
+            {curriculumTrackOptions && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {curriculumTrackOptions.map((t) => (
+                  <button key={t} type="button" onClick={() => setCurriculumTrack(curriculumTrack === t ? "" : t)}
+                    className="px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all"
+                    style={{
+                      background: curriculumTrack === t ? "rgba(168,85,247,0.15)" : "rgba(255,255,255,0.04)",
+                      border: `1px solid ${curriculumTrack === t ? "rgba(168,85,247,0.35)" : "rgba(255,255,255,0.08)"}`,
+                      color: curriculumTrack === t ? "#a855f7" : "#475569",
+                    }}>
+                    {t}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <div>
             <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: "#475569" }}>
               AI Model
@@ -435,6 +542,103 @@ export default function PracticePage() {
           </div>
         </div>
       )}
+
+      {/* Check My Work (Practice Check™) */}
+      <div className="rounded-2xl p-6 mt-6"
+        style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}>
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2">
+            <ClipboardCheck className="w-4 h-4" style={{ color: "#22d3ee" }} />
+            <h2 className="text-sm font-semibold" style={{ color: "#f1f5f9" }}>Check My Work</h2>
+          </div>
+          <button onClick={handleGenerateCheck} disabled={checkLoading}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-semibold disabled:opacity-50"
+            style={{ background: "rgba(34,211,238,0.10)", border: "1px solid rgba(34,211,238,0.25)", color: "#22d3ee" }}>
+            {checkLoading ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Generating…</> : <>{checkProblems ? "New Set" : "Generate 3 Problems"}</>}
+          </button>
+        </div>
+        <p className="text-xs mb-4" style={{ color: "#475569" }}>
+          3 gradable problems using the current subject/topic/level/difficulty above — submit an answer and get graded instantly.
+        </p>
+
+        {checkError && (
+          <div className="rounded-xl px-4 py-3 mb-4 text-xs"
+            style={{ background: "rgba(244,63,94,0.10)", border: "1px solid rgba(244,63,94,0.25)", color: "#f87171" }}>
+            {checkError}
+          </div>
+        )}
+
+        {checkProblems && checkProblems.length > 0 && (
+          <div className="space-y-4">
+            {checkProblems.map((p, i) => {
+              const result = checkResults[p.id];
+              const revealed = !!checkRevealed[p.id];
+              const submitting = !!checkSubmitting[p.id];
+              return (
+                <div key={p.id} className="rounded-xl p-4"
+                  style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                  <p className="text-xs font-semibold mb-1.5" style={{ color: "#334155" }}>Problem {i + 1}</p>
+                  <p className="text-sm mb-3" style={{ color: "#e2e8f0" }}>{p.problem_text}</p>
+
+                  {!result && (
+                    <>
+                      <div className="flex flex-wrap items-center gap-2 mb-2">
+                        <input type="text" value={checkAnswers[p.id] || ""}
+                          onChange={e => setCheckAnswers(prev => ({ ...prev, [p.id]: e.target.value }))}
+                          onKeyDown={e => e.key === "Enter" && handleSubmitCheckAnswer(p.id)}
+                          placeholder="Your answer…"
+                          className="input-dark text-xs py-2 px-3 flex-1 min-w-[160px]" />
+                        <button onClick={() => handleSubmitCheckAnswer(p.id)} disabled={submitting || !(checkAnswers[p.id] || "").trim()}
+                          className="text-xs px-3 py-2 rounded-lg font-semibold disabled:opacity-50"
+                          style={{ background: "rgba(52,211,153,0.12)", border: "1px solid rgba(52,211,153,0.25)", color: "#34d399" }}>
+                          {submitting ? "Checking…" : "Submit"}
+                        </button>
+                        <button onClick={() => handleRevealSolution(p.id)}
+                          className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg"
+                          style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", color: "#475569" }}>
+                          {revealed ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                          {revealed ? "Solution revealed" : "Reveal solution"}
+                        </button>
+                      </div>
+                      {revealed && (
+                        <p className="text-[11px]" style={{ color: "#fbbf24" }}>
+                          Revealing before submitting means this attempt counts as AI-assisted, not independent — that's fine, it just won't count toward mastery the same way.
+                        </p>
+                      )}
+                    </>
+                  )}
+
+                  {result && (
+                    <div className="rounded-lg p-3 mt-1"
+                      style={{
+                        background: result.is_correct ? "rgba(52,211,153,0.08)" : "rgba(244,63,94,0.08)",
+                        border: `1px solid ${result.is_correct ? "rgba(52,211,153,0.25)" : "rgba(244,63,94,0.25)"}`,
+                      }}>
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        {result.is_correct
+                          ? <CheckCircle2 className="w-3.5 h-3.5" style={{ color: "#34d399" }} />
+                          : <XCircle className="w-3.5 h-3.5" style={{ color: "#f87171" }} />}
+                        <span className="text-xs font-semibold" style={{ color: result.is_correct ? "#34d399" : "#f87171" }}>
+                          {result.is_correct ? "Correct" : "Not quite"}
+                        </span>
+                        <span className="text-[10px] ml-auto" style={{ color: "#475569" }}>
+                          Mastery: {result.mastery_state}
+                        </span>
+                      </div>
+                      {!result.is_correct && (
+                        <p className="text-xs mb-1" style={{ color: "#94a3b8" }}>
+                          Correct answer: <span style={{ color: "#e2e8f0" }}>{result.correct_answer}</span>
+                        </p>
+                      )}
+                      <p className="text-xs" style={{ color: "#94a3b8" }}>{result.solution_steps}</p>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

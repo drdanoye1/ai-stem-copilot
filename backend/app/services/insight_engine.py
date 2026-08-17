@@ -38,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.insight import MasteryInsightSnapshot
 from app.models.user import User
 from app.routers.math import dispatch, _parse_json_response
+from app.services.model_registry import resolve_text_mode
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -128,7 +129,7 @@ async def get_or_generate_insight(
     topics: list,
     competencies: list,
     force: bool = False,
-    model_name: str = "gpt-4o",
+    ai_mode: str = "smart",
 ):
     """Returns (insight_dict, from_cache: bool). insight_dict has
     strengths/opportunities/next_steps/generated_at/model_name."""
@@ -159,7 +160,7 @@ async def get_or_generate_insight(
                 topics_json=json.dumps(topics, default=str),
                 competencies_json=json.dumps(competencies, default=str),
             )
-            raw, _, _ = await dispatch(INSIGHT_SYSTEM_PROMPT, prompt, model_name, 800)
+            raw, _, _ = await dispatch(INSIGHT_SYSTEM_PROMPT, prompt, ai_mode, 800)
             data = _parse_json_response(raw)
             for key in ("strengths", "opportunities", "next_steps"):
                 if not data.get(key):
@@ -177,7 +178,7 @@ async def get_or_generate_insight(
         strengths=data["strengths"],
         opportunities=data["opportunities"],
         next_steps=data["next_steps"],
-        model_name=model_name,
+        model_name=resolve_text_mode(ai_mode).id,
     )
     db.add(snapshot)
     await db.commit()

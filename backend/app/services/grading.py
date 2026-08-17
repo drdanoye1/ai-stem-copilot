@@ -45,7 +45,7 @@ async def grade_answer(
     problem_text: str,
     submitted: str,
     correct_answer: str,
-    model_name: str = "gpt-4o",
+    ai_mode: str = "smart",
 ) -> Tuple[bool, str]:
     """Returns (is_correct, grading_method) -- grading_method is
     "exact_match" or "ai_graded"."""
@@ -60,7 +60,7 @@ async def grade_answer(
                 correct_answer=correct_answer,
                 submitted_answer=submitted,
             ),
-            model_name,
+            ai_mode,
             200,
         )
         cleaned = raw.strip()

@@ -415,58 +415,58 @@ export interface SubjectInfo {
 export const mathApi = {
   solve: (data: {
     problem: string; subject: string; level: string;
-    sublevel?: string; style?: string; curriculum?: string; curriculum_track?: string; model_name?: string; max_tokens?: number;
+    sublevel?: string; style?: string; curriculum?: string; curriculum_track?: string; ai_mode?: string; max_tokens?: number;
   }) => api.post<MathSession>("/math/solve", data),
 
   explore: (data: {
     topic: string; subject: string; level: string;
-    sublevel?: string; curriculum?: string; curriculum_track?: string; model_name?: string;
+    sublevel?: string; curriculum?: string; curriculum_track?: string; ai_mode?: string;
     example_count?: number; max_tokens?: number;
   }) => api.post<MathSession>("/math/explore", data),
 
   practice: (data: {
     topic: string; subject: string; level: string;
     sublevel?: string; curriculum?: string; curriculum_track?: string; difficulty?: string;
-    count?: number; model_name?: string; max_tokens?: number;
+    count?: number; ai_mode?: string; max_tokens?: number;
   }) => api.post<MathSession>("/math/practice", data),
 
   theory: (data: {
     topic: string; subject: string; level: string;
-    sublevel?: string; theory_level?: string; curriculum?: string; curriculum_track?: string; model_name?: string; max_tokens?: number;
+    sublevel?: string; theory_level?: string; curriculum?: string; curriculum_track?: string; ai_mode?: string; max_tokens?: number;
   }) => api.post<MathSession>("/math/theory", data),
 
   objectives: (data: {
     topic: string; subject: string; level: string;
-    curriculum?: string; curriculum_track?: string; model_name?: string; max_tokens?: number;
+    curriculum?: string; curriculum_track?: string; ai_mode?: string; max_tokens?: number;
   }) => api.post<ObjectivesResponse>("/math/objectives", data),
 
   reformulate: (data: {
     topic?: string; subject: string; level: string;
-    curriculum?: string; curriculum_track?: string; context?: string; model_name?: string; raw_input?: string;
+    curriculum?: string; curriculum_track?: string; context?: string; ai_mode?: string; raw_input?: string;
   }) => api.post<{ suggestions: string[] }>("/math/reformulate", data),
 
   scenario: (data: {
     topic: string; subject: string; level: string;
-    model_name?: string; max_tokens?: number; curriculum?: string; curriculum_track?: string;
-    image_model?: string;  // "gpt-image-1" (default) | "dall-e-3"
+    ai_mode?: string; max_tokens?: number; curriculum?: string; curriculum_track?: string;
+    image_mode?: string;  // "diagram" (default) | "creative"
   }) => api.post<ScenarioResponse>("/math/scenario", data),
 
   visualize: (data: {
-    topic: string; subject: string; level: string; curriculum?: string; curriculum_track?: string; model_name?: string; max_tokens?: number;
+    topic: string; subject: string; level: string; curriculum?: string; curriculum_track?: string; ai_mode?: string; max_tokens?: number;
   }) => api.post<VisualizeResponse>("/math/visualize", data),
 
   simulate: (data: {
-    topic: string; subject: string; level: string; model_name?: string; curriculum?: string; curriculum_track?: string; max_tokens?: number;
+    topic: string; subject: string; level: string; ai_mode?: string; curriculum?: string; curriculum_track?: string; max_tokens?: number;
   }) => api.post<SimulateResponse>("/math/simulate", data),
 
   applications: (data: {
-    topic: string; subject: string; level: string; curriculum?: string; curriculum_track?: string; model_name?: string; image_model?: string; max_tokens?: number;
+    topic: string; subject: string; level: string; curriculum?: string; curriculum_track?: string; ai_mode?: string; image_mode?: string; max_tokens?: number;
   }) => api.post<ApplicationsResponse>("/math/applications", data),
 
   mentor: {
     start: (data: { subject: string; level: string }) =>
       api.post<MentorConversation>("/math/mentor/start", data),
-    send: (id: string, data: { message: string; model_name?: string }) =>
+    send: (id: string, data: { message: string; ai_mode?: string }) =>
       api.post<MentorConversation>(`/math/mentor/${id}/message`, data),
     list: () => api.get<MentorConversation[]>("/math/mentor"),
   },
@@ -499,13 +499,13 @@ export const mathApi = {
 // ── Standalone Mentor API (matches mentor/page.tsx interface) ─────────────────
 
 export const mentorApi = {
-  start: (data: { topic: string; subject: string; level: string; curriculum?: string; curriculum_track?: string; model_name?: string }) =>
+  start: (data: { topic: string; subject: string; level: string; curriculum?: string; curriculum_track?: string; ai_mode?: string }) =>
     api.post<MentorSession>("/math/mentor/start", data),
-  respond: (data: { session_id: string; user_message: string; model_name?: string }) =>
+  respond: (data: { session_id: string; user_message: string; ai_mode?: string }) =>
     api.post<MentorSession>("/math/mentor/respond", {
       session_id: data.session_id,
       user_message: data.user_message,
-      model_name: data.model_name,
+      ai_mode: data.ai_mode,
     }),
   list: () => api.get<MentorSession[]>("/math/mentor"),
 };
@@ -543,7 +543,7 @@ export const arVrApi = {
     level?: string;
     curriculum?: string;
     curriculum_track?: string;
-    model_name?: string;
+    ai_mode?: string;
   }) => api.post<ArVrInterpretation>("/ar-vr/interpret", data),
 };
 
@@ -699,7 +699,7 @@ export interface Insight {
 export const outcomesApi = {
   generateStructuredPractice: (data: {
     subject?: string; topic?: string; level?: string; difficulty?: string;
-    curriculum?: string; curriculum_track?: string; model_name?: string;
+    curriculum?: string; curriculum_track?: string; ai_mode?: string;
   }) => api.post<StructuredPracticeProblem[]>("/outcomes/practice/structured", data),
 
   submitPracticeAnswer: (problemId: string, data: { submitted_answer: string; revealed_solution_first?: boolean }) =>
@@ -718,6 +718,31 @@ export const outcomesApi = {
     api.post<Insight>("/outcomes/insights", {
       learner_email: opts?.learnerEmail,
       force: opts?.force ?? false,
-      model_name: opts?.modelName ?? "gpt-4o",
+      ai_mode: opts?.modelName ?? "smart",
     }),
+};
+
+// ── Model Capability Registry (admin/developer visibility) ────────────────────
+// Real provider/deployment identities behind each public AI Mode / Image Mode.
+// Admin-only — see backend/app/routers/admin.py and services/model_registry.py.
+
+export interface ModelDeployment {
+  id: string;
+  provider: string;
+  model_family: string;
+  deployment_id: string;
+  capability_class: string;
+  public_mode: string | null;
+  public_label: string | null;
+  status: string;
+  priority: string;
+  cost_class: string;
+  latency_class: string;
+  capability_ratings: Record<string, unknown>;
+  kind: "text" | "image";
+}
+
+export const adminApi = {
+  getModels: () =>
+    api.get<{ deployments: ModelDeployment[] }>("/admin/models"),
 };

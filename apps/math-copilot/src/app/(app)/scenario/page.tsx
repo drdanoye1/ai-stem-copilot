@@ -2,11 +2,15 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { mathApi, getErrorMessage, type ScenarioResponse } from "@/lib/api";
+import { useAuthStore } from "@/store/auth";
+import { LEVELS, CURRICULUM_CATEGORIES, CURRICULUM_REGISTRY, curriculumLabel } from "@/lib/personalization-taxonomy";
+import { GroupedSelect } from "@/components/GroupedSelect";
 import {
   Camera, Loader2, ChevronDown, Sparkles, AlertTriangle,
   CheckCircle2, BookOpen, FlaskConical, ZoomIn,
 } from "lucide-react";
 import { ModelSelector, useModel } from "@/components/ModelSelector";
+import { ImageModelSelector, useImageMode, IMAGE_MODELS } from "@/components/ImageModelSelector";
 import katex from "katex";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -33,15 +37,9 @@ const CAT_COLORS: Record<string, string> = {
   Quantum:    "#38bdf8",
 };
 
-const LEVELS = [
-  { value: "middle_school",     label: "Middle School"     },
-  { value: "high_school",       label: "High School"       },
-  { value: "ap_ib",             label: "AP / IB"           },
-  { value: "community_college", label: "Community College" },
-  { value: "university",        label: "University"        },
-  { value: "graduate",          label: "Graduate"          },
-];
-
+// Single source of truth: mirrors the account profile's Education Level
+// taxonomy (src/app/(app)/profile/page.tsx) so "Level" here always means
+// the same thing it means on the profile page.
 const SUBJECTS = [
   { value: "algebra",                label: "Algebra"                  },
   { value: "calculus",               label: "Calculus"                 },
@@ -55,19 +53,6 @@ const SUBJECTS = [
   { value: "other",                  label: "Other"                    },
 ];
 
-const CURRICULA = [
-  { value: "general",   label: "General"   },
-  { value: "waec",      label: "WAEC"      },
-  { value: "cambridge", label: "Cambridge" },
-  { value: "ib",        label: "IB"        },
-  { value: "ap",        label: "AP"        },
-  { value: "gcse",      label: "GCSE"      },
-];
-
-const IMAGE_MODELS = [
-  { value: "gpt-image-1", label: "GPT-Image-1" },
-  { value: "dall-e-3",    label: "DALL-E 3"    },
-];
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -225,11 +210,13 @@ function ScenarioCard({
 
 export default function ScenarioPage() {
   const params = useSearchParams();
+  const { user } = useAuthStore();
   const [topic,      setTopic]      = useState(params.get("topic")      ?? "");
   const [subject,    setSubject]    = useState(params.get("subject")    ?? "calculus");
   const [level,      setLevel]      = useState(params.get("level")      ?? "university");
   const [curriculum, setCurriculum] = useState(params.get("curriculum") ?? "general");
-  const [imageModel, setImageModel] = useState("gpt-image-1");
+  const [curriculumTrack, setCurriculumTrack] = useState("");
+  const { imageMode, setImageMode } = useImageMode();
   const { model, setModel } = useModel();
   const [loading, setLoading] = useState(false);
   const [result,  setResult]  = useState<ScenarioResponse | null>(null);
@@ -242,13 +229,44 @@ export default function ScenarioPage() {
     const l = params.get("level");   if (l) setLevel(l);
   }, [params]);
 
+  // Default Level to the account's Education Level (the ground truth) once
+  // it loads — but never override an explicit ?level= deep link, since that
+  // reflects a deliberate choice carried over from another page.
+  const appliedAccountLevelRef = useRef(false);
+  useEffect(() => {
+    if (!appliedAccountLevelRef.current && !params.get("level") && user?.level) {
+      setLevel(user.level);
+      appliedAccountLevelRef.current = true;
+    }
+  }, [user?.level]);
+
+  // Seed Curriculum (+ Track) from the account's stored value once it
+  // loads — but never override an explicit ?curriculum= deep link, since
+  // that reflects a deliberate choice carried over from another page.
+  const appliedAccountCurriculumRef = useRef(false);
+  useEffect(() => {
+    if (!appliedAccountCurriculumRef.current && !params.get("curriculum") && user?.curriculum) {
+      setCurriculum(user.curriculum);
+      setCurriculumTrack(user.curriculum_track || "");
+      appliedAccountCurriculumRef.current = true;
+    }
+  }, [user?.curriculum, user?.curriculum_track]);
+
+  const selectCurriculum = (value: string) => {
+    setCurriculum(value);
+    if (!CURRICULUM_REGISTRY[value]?.trackOptions?.includes(curriculumTrack)) {
+      setCurriculumTrack("");
+    }
+  };
+  const curriculumTrackOptions = CURRICULUM_REGISTRY[curriculum]?.trackOptions ?? null;
+
   const handleGenerate = async () => {
     if (!topic.trim()) return;
     setLoading(true); setError(null); setResult(null);
     try {
       const { data } = await mathApi.scenario({
-        topic: topic.trim(), subject, level, curriculum,
-        model_name: model, image_model: imageModel,
+        topic: topic.trim(), subject, level, curriculum, curriculum_track: curriculumTrack || undefined,
+        ai_mode: model, image_mode: imageMode,
       });
       setResult(data);
       setTimeout(() => outputRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
@@ -297,9 +315,44 @@ export default function ScenarioPage() {
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-5">
           <Select label="Subject"      value={subject}    onChange={setSubject}    options={SUBJECTS} />
-          <Select label="Level"        value={level}      onChange={setLevel}      options={LEVELS} />
-          <Select label="Curriculum"   value={curriculum} onChange={setCurriculum} options={CURRICULA} />
-          <Select label="Image Model"  value={imageModel} onChange={setImageModel} options={IMAGE_MODELS} />
+          <div>
+            <Select label="Level" value={level} onChange={setLevel} options={LEVELS} />
+            <p className="text-[10px] mt-1 flex items-center gap-1.5 flex-wrap" style={{ color: "#334155" }}>
+              <span>Profile: {LEVELS.find(l => l.value === user?.level)?.label ?? "—"}</span>
+              {user?.level && level !== user.level && (
+                <span className="px-1.5 py-0.5 rounded font-semibold" style={{ background: "rgba(251,191,36,0.15)", color: "#fbbf24" }}>
+                  Session override
+                </span>
+              )}
+            </p>
+          </div>
+          <div>
+            <GroupedSelect label="Curriculum" value={curriculum} onChange={selectCurriculum} groups={CURRICULUM_CATEGORIES} />
+            <p className="text-[10px] mt-1 flex items-center gap-1.5 flex-wrap" style={{ color: "#334155" }}>
+              <span>Profile: {curriculumLabel(user?.curriculum) ?? "—"}</span>
+              {user?.curriculum && curriculum !== user.curriculum && (
+                <span className="px-1.5 py-0.5 rounded font-semibold" style={{ background: "rgba(251,191,36,0.15)", color: "#fbbf24" }}>
+                  Session override
+                </span>
+              )}
+            </p>
+            {curriculumTrackOptions && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {curriculumTrackOptions.map((t) => (
+                  <button key={t} type="button" onClick={() => setCurriculumTrack(curriculumTrack === t ? "" : t)}
+                    className="px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all"
+                    style={{
+                      background: curriculumTrack === t ? "rgba(168,85,247,0.15)" : "rgba(255,255,255,0.04)",
+                      border: `1px solid ${curriculumTrack === t ? "rgba(168,85,247,0.35)" : "rgba(255,255,255,0.08)"}`,
+                      color: curriculumTrack === t ? "#a855f7" : "#475569",
+                    }}>
+                    {t}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <ImageModelSelector label="Image Mode" value={imageMode} onChange={setImageMode} />
           <div>
             <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1.5"
               style={{ color: "#475569" }}>AI Model</label>
@@ -312,7 +365,7 @@ export default function ScenarioPage() {
           style={{ background: "rgba(251,146,60,0.08)", border: "1px solid rgba(251,146,60,0.18)", color: "#94a3b8" }}>
           <Camera className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "#fb923c" }} />
           Generates <strong className="mx-1 text-orange-300">2 photorealistic images</strong> via
-          <strong className="mx-1 text-orange-300">{IMAGE_MODELS.find(m => m.value === imageModel)?.label}</strong>.
+          <strong className="mx-1 text-orange-300">{IMAGE_MODELS.find(m => m.id === imageMode)?.label}</strong>.
           Each generation uses additional AI credits.
         </div>
 

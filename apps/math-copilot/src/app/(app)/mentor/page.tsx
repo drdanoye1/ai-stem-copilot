@@ -1,8 +1,13 @@
 "use client";
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import { GraduationCap, Send, RotateCcw, ChevronDown, Sparkles, BookOpen, Eye, Download } from "lucide-react";
-import { ModelSelector, useModel } from "@/components/ModelSelector";
+import { ModelSelector, useAiMode } from "@/components/ModelSelector";
+import { useAuthStore } from "@/store/auth";
 import { mentorApi, getErrorMessage, type MentorMessage, type MentorSession } from "@/lib/api";
+import { CURRICULUM_CATEGORIES, CURRICULUM_REGISTRY, curriculumLabel } from "@/lib/personalization-taxonomy";
+import { GroupedSelect } from "@/components/GroupedSelect";
+import { GoalsPanel } from "@/components/goals/GoalsPanel";
 
 const ACCENT = "#a855f7";
 
@@ -18,12 +23,19 @@ const SUBJECTS = [
   { key: "precalculus",           label: "Pre-Calculus" },
 ];
 
+// Kept in sync with the account profile's Education Level taxonomy
+// (apps/math-copilot/src/app/(app)/profile/page.tsx LEVELS) so every level a
+// learner can set on their profile is also selectable for a single session.
 const LEVELS = [
-  { key: "middle_school",  label: "Middle School" },
-  { key: "high_school",    label: "High School" },
-  { key: "ap_ib",          label: "AP / IB" },
-  { key: "university",     label: "University" },
-  { key: "graduate",       label: "Graduate" },
+  { key: "pre_k",             label: "Pre-K / Kindergarten" },
+  { key: "elementary_school", label: "Elementary School" },
+  { key: "middle_school",     label: "Middle School" },
+  { key: "high_school",       label: "High School" },
+  { key: "ap_ib",             label: "AP / IB" },
+  { key: "college",           label: "College" },
+  { key: "university",        label: "University" },
+  { key: "graduate",          label: "Graduate" },
+  { key: "professional",      label: "Professional" },
 ];
 
 const STARTER_TOPICS = [
@@ -194,11 +206,63 @@ function CompletionCard({ insight, onNew }: { insight: string; onNew: () => void
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function MentorPage() {
+  const { user } = useAuthStore();
+
   // Setup state
   const [topic, setTopic] = useState("");
   const [subject, setSubject] = useState("algebra");
   const [level, setLevel] = useState("high_school");
-  const { model: modelName, setModel: setModelName } = useModel();
+  const [curriculum, setCurriculum] = useState("general");
+  const [curriculumTrack, setCurriculumTrack] = useState("");
+  const { model: modelName, setModel: setModelName } = useAiMode();
+
+  // Deep-link support — the AI Spatial Tutor entry points inside AR/VR Lab
+  // (and future experiences) link here with ?topic=...&subject=..., so the
+  // learner's question carries over instead of starting from a blank setup
+  // screen. Pre-fills only; the learner still presses "Ask" to start.
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const topicParam = searchParams.get("topic");
+    const subjectParam = searchParams.get("subject");
+    if (topicParam) setTopic(topicParam);
+    if (subjectParam && SUBJECTS.some((s) => s.key === subjectParam)) setSubject(subjectParam);
+    // Only read the deep-link once, on first mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Default the per-session Level to the account's Education Level once it
+  // loads (the auth store populates asynchronously via fetchMe(), so it's
+  // rarely available yet at first render). Only applied once — after that,
+  // a learner is free to override it for a single session (e.g. a
+  // Professional deliberately practicing at a High School pace) without it
+  // snapping back.
+  const appliedAccountLevelRef = useRef(false);
+  useEffect(() => {
+    if (!appliedAccountLevelRef.current && user?.level) {
+      setLevel(user.level);
+      appliedAccountLevelRef.current = true;
+    }
+  }, [user?.level]);
+
+  // Seed Curriculum (+ Track) from the account's stored value once it
+  // loads, without clobbering a curriculum the learner has since chosen
+  // for this session.
+  const appliedAccountCurriculumRef = useRef(false);
+  useEffect(() => {
+    if (!appliedAccountCurriculumRef.current && user?.curriculum) {
+      setCurriculum(user.curriculum);
+      setCurriculumTrack(user.curriculum_track || "");
+      appliedAccountCurriculumRef.current = true;
+    }
+  }, [user?.curriculum, user?.curriculum_track]);
+
+  const selectCurriculum = (value: string) => {
+    setCurriculum(value);
+    if (!CURRICULUM_REGISTRY[value]?.trackOptions?.includes(curriculumTrack)) {
+      setCurriculumTrack("");
+    }
+  };
+  const curriculumTrackOptions = CURRICULUM_REGISTRY[curriculum]?.trackOptions ?? null;
 
   // Session state
   const [session, setSession] = useState<MentorSession | null>(null);
@@ -220,7 +284,7 @@ export default function MentorPage() {
     setError(null);
     setLoading(true);
     try {
-      const res = await mentorApi.start({ topic: t, subject, level, model_name: modelName });
+      const res = await mentorApi.start({ topic: t, subject, level, curriculum, curriculum_track: curriculumTrack || undefined, ai_mode: modelName });
       setSession(res.data);
       setTopic(t);
     } catch (e: unknown) {
@@ -228,7 +292,7 @@ export default function MentorPage() {
     } finally {
       setLoading(false);
     }
-  }, [topic, subject, level, modelName]);
+  }, [topic, subject, level, curriculum, curriculumTrack, modelName]);
 
   const sendResponse = useCallback(async () => {
     if (!session || !userInput.trim() || loading) return;
@@ -247,7 +311,7 @@ export default function MentorPage() {
       const res = await mentorApi.respond({
         session_id: session.session_id,
         user_message: msg,
-        model_name: modelName,
+        ai_mode: modelName,
       });
       setSession(res.data);
     } catch (e: unknown) {
@@ -302,6 +366,8 @@ export default function MentorPage() {
             you discover the insight yourself — the most durable form of mathematical understanding.
           </p>
         </div>
+
+        <GoalsPanel subject={subject} />
 
         {/* Method explainer */}
         <div className="rounded-2xl p-5 mb-8"
@@ -367,7 +433,7 @@ export default function MentorPage() {
         </div>
 
         {/* Controls row */}
-        <div className="grid sm:grid-cols-3 gap-3 mb-6">
+        <div className="grid sm:grid-cols-4 gap-3 mb-6">
           <div>
             <label className="text-[10px] font-semibold uppercase tracking-widest block mb-1.5" style={{ color: "#334155" }}>
               Subject
@@ -393,6 +459,47 @@ export default function MentorPage() {
               </select>
               <ChevronDown className="w-3 h-3 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: "#475569" }} />
             </div>
+            <p className="text-[10px] mt-1 flex items-center gap-1.5 flex-wrap" style={{ color: "#334155" }}>
+              <span>Profile: {LEVELS.find(l => l.key === user?.level)?.label ?? "—"}</span>
+              {user?.level && level !== user.level && (
+                <span className="px-1.5 py-0.5 rounded font-semibold" style={{ background: "rgba(251,191,36,0.15)", color: "#fbbf24" }}>
+                  Session override
+                </span>
+              )}
+            </p>
+          </div>
+          <div>
+            <GroupedSelect
+              label="Curriculum"
+              value={curriculum}
+              onChange={selectCurriculum}
+              groups={CURRICULUM_CATEGORIES}
+              className="w-full rounded-xl px-3 py-2 text-xs appearance-none outline-none pr-7"
+              style={{ background: "var(--bg-surface)", border: "1px solid rgba(255,255,255,0.10)", color: "#f1f5f9" }}
+            />
+            <p className="text-[10px] mt-1 flex items-center gap-1.5 flex-wrap" style={{ color: "#334155" }}>
+              <span>Profile: {curriculumLabel(user?.curriculum) ?? "—"}</span>
+              {user?.curriculum && curriculum !== user.curriculum && (
+                <span className="px-1.5 py-0.5 rounded font-semibold" style={{ background: "rgba(251,191,36,0.15)", color: "#fbbf24" }}>
+                  Session override
+                </span>
+              )}
+            </p>
+            {curriculumTrackOptions && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {curriculumTrackOptions.map((t) => (
+                  <button key={t} type="button" onClick={() => setCurriculumTrack(curriculumTrack === t ? "" : t)}
+                    className="px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all"
+                    style={{
+                      background: curriculumTrack === t ? "rgba(168,85,247,0.15)" : "rgba(255,255,255,0.04)",
+                      border: `1px solid ${curriculumTrack === t ? "rgba(168,85,247,0.35)" : "rgba(255,255,255,0.08)"}`,
+                      color: curriculumTrack === t ? ACCENT : "#475569",
+                    }}>
+                    {t}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <div>
             <label className="text-[10px] font-semibold uppercase tracking-widest block mb-1.5" style={{ color: "#334155" }}>

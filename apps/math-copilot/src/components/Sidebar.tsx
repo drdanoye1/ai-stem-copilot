@@ -125,7 +125,7 @@ const ADMIN_NAV_GROUPS: NavGroup[] = [
   {
     title: "AI Systems",
     items: [
-      { href: "/admin/ai-models",      label: "AI Models",      icon: BrainCircuit, locked: true },
+      { href: "/admin/ai-models",      label: "AI Models",      icon: BrainCircuit, locked: false },
       { href: "/admin/ai-routing",     label: "Model Routing",  icon: GitBranch,    locked: true },
       { href: "/admin/ai-providers",   label: "Providers",      icon: Server,       locked: true },
       { href: "/admin/ai-performance", label: "AI Performance", icon: Activity,     locked: true },

@@ -18,6 +18,11 @@ from app.routers.auth import get_current_user
 from app.models.user import User
 from app.models.session import MathSession, MathSubject, SessionType, UserTopicProgress
 from app.config import settings
+from app.services.curriculum_registry import CURRICULUM_REGISTRY
+from app.services.personalization import build_personalization_context
+from app.services.model_registry import resolve_text_mode, resolve_image_mode, get_deployment_id
+from app.models.evidence import EvidenceSource
+from app.services.evidence_engine import log_evidence_event
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -86,30 +91,16 @@ except ImportError:
 router = APIRouter(prefix="/math", tags=["math"])
 
 # ── Model routing ─────────────────────────────────────────────────────────────
-
-MODEL_PROVIDER_MAP = {
-    "gpt-4o":              "openai",
-    "gpt-4o-mini":         "openai",
-    "gpt-4-turbo":         "openai",
-    "claude-sonnet-4":     "anthropic",
-    "claude-haiku-4":      "anthropic",
-    "claude-opus-4":       "anthropic",
-    "claude-3-5-sonnet":   "anthropic",
-    "gemini-1.5-pro":      "google",
-    "gemini-1.5-flash":    "google",
-}
-
-ANTHROPIC_MODEL_MAP = {
-    "claude-sonnet-4":   "claude-sonnet-4-5",
-    "claude-haiku-4":    "claude-haiku-4-5",
-    "claude-opus-4":     "claude-opus-4-5",
-    "claude-3-5-sonnet": "claude-sonnet-4-6",
-}
-
-GEMINI_MODEL_MAP = {
-    "gemini-1.5-pro":   "gemini-1.5-pro",
-    "gemini-1.5-flash": "gemini-1.5-flash",
-}
+#
+# Provider/deployment resolution now lives in app.services.model_registry (the
+# Model Capability Registry™) — the single source of truth for every approved
+# text and image deployment, replacing the three dicts that used to live here
+# (MODEL_PROVIDER_MAP, ANTHROPIC_MODEL_MAP, GEMINI_MODEL_MAP) plus a fourth,
+# independently-drifted copy that used to live inline in app/routers/mentor.py.
+# dispatch() below resolves a public ai_mode (e.g. "smart") to a concrete
+# deployment via resolve_text_mode(); call_anthropic/call_gemini still accept
+# an internal model id and translate it to the real provider-SDK string via
+# get_deployment_id().
 
 # ── Prompt templates ──────────────────────────────────────────────────────────
 
@@ -131,6 +122,7 @@ SUBJECT: {subject}
 EDUCATION LEVEL: {level}
 SOLUTION STYLE: {style}
 CURRICULUM STANDARD: {curriculum}
+{personalization}
 
 Generate a complete solution in this exact structure:
 
@@ -166,6 +158,7 @@ EXPLORE_PROMPT = """TOPIC: {topic}
 SUBJECT AREA: {subject}
 EDUCATION LEVEL: {level}
 CURRICULUM STANDARD: {curriculum}
+{personalization}
 
 Generate a comprehensive topic explanation with this structure:
 
@@ -186,7 +179,7 @@ Each example must show every step with explanation.
 Describe the geometric or graphical interpretation where applicable.
 
 ## Common Applications
-List 3-5 real-world applications of this topic.
+List 3-5 real-world applications of this topic. If a career interest is specified above, the first 1-2 applications listed MUST come from that specific field, named concretely (real tools, techniques, or job tasks) — the remaining applications may span other fields.
 
 ## Practice Problems
 Generate 5 practice problems (with answers hidden in a spoiler format using > Answer: ...).
@@ -246,8 +239,9 @@ SUBJECT AREA: {subject}
 EDUCATION LEVEL: {level}
 THEORY DEPTH: {theory_level}
 CURRICULUM STANDARD: {curriculum}
+{personalization}
 
-Generate a complete Theory Lesson with ALL twelve sections below. Do not skip any section.
+Generate a complete Theory Lesson with ALL twelve sections below. Do not skip any section. If a career interest is specified above, also add a final "## 13. Career & Industry Relevance" section after Section 12, with 2-4 concrete, specific ways this exact topic is used in that field — name real tools, techniques, algorithms, or job tasks; never a generic line like "this is useful in many fields."
 
 ## 1. Historical Background
 Who discovered or developed this concept? When? What problem were they trying to solve?
@@ -255,7 +249,7 @@ Write 2–4 engaging sentences — make the history vivid and human.
 
 ## 2. Intuition & Motivation
 Why does this concept exist? What problem does it solve in plain English?
-Use an analogy or everyday example. No formulas yet — pure intuition first.
+Use an analogy or everyday example — if a career interest is specified above, draw this analogy specifically from that field. No formulas yet — pure intuition first.
 
 ## 3. Formal Definition
 State the precise mathematical definition using full LaTeX notation.
@@ -300,7 +294,7 @@ Write one concise paragraph synthesizing the lesson.
 What should the learner now understand that they did not before?
 What is the single most important insight from this topic?
 
-VISUALIZATION REQUIREMENT — You MUST end your response (after Section 12) with exactly one visualization hint block.
+VISUALIZATION REQUIREMENT — You MUST end your response (after the last section above) with exactly one visualization hint block.
 The delimiters [VIZ_HINT] and [/VIZ_HINT] are MANDATORY — do not omit them.
 
 Choose the most relevant type for {topic}. Use REAL numeric values (never empty arrays []).
@@ -330,6 +324,7 @@ OBJECTIVES_PROMPT = """TOPIC: {topic}
 SUBJECT AREA: {subject}
 EDUCATION LEVEL: {level}
 CURRICULUM STANDARD: {curriculum}
+{personalization}
 
 Generate a structured list of learning objectives for this mathematics topic.
 Map each objective to a Bloom's Taxonomy level.
@@ -352,6 +347,7 @@ VISUALIZE_PROMPT = """TOPIC: {topic}
 SUBJECT: {subject}
 EDUCATION LEVEL: {level}
 CURRICULUM: {curriculum}
+{personalization}
 
 Generate exactly 3 different visualizations that each illuminate a DIFFERENT aspect of {topic}.
 Return ONLY valid JSON (no markdown, no code fences):
@@ -382,6 +378,7 @@ SIMULATE_PROMPT = """TOPIC: {topic}
 SUBJECT: {subject}
 EDUCATION LEVEL: {level}
 CURRICULUM: {curriculum}
+{personalization}
 
 Create an interactive mathematical simulation for {topic} where students adjust parameters and instantly see how the graph changes.
 Return ONLY valid JSON (no markdown, no code fences):
@@ -413,8 +410,10 @@ APPLICATIONS_PROMPT = """TOPIC: {topic}
 SUBJECT: {subject}
 EDUCATION LEVEL: {level}
 CURRICULUM: {curriculum}
+{personalization}
 
 Generate 5 compelling real-world applications of {topic} spanning different industries and careers.
+If a career interest is given above, make at least one of the 5 applications come from that specific field (or a closely related one).
 Return ONLY valid JSON (no markdown, no code fences):
 {{
   "topic": "{topic}",
@@ -438,10 +437,11 @@ For {level} students, choose applications that are motivating and relatable."""
 
 LEVEL_LABELS = {
     "pre_k":             "Pre-K / Kindergarten (ages 3–6)",
+    "elementary_school": "Elementary School (ages 6–11)",
     "middle_school":     "Middle School",
     "high_school":       "High School",
     "ap_ib":             "AP/IB Advanced High School",
-    "community_college": "Community College",
+    "college":           "College (2-year / community college)",
     "university":        "University undergraduate",
     "graduate":          "Graduate / postgraduate",
     "professional":      "Professional / research level",
@@ -479,10 +479,11 @@ DIFFICULTY_NOTES = {
         "Use stories, animals, or everyday objects to illustrate every concept. "
         "Always celebrate curiosity and effort."
     ),
+    "elementary_school": "Use simple, concrete language. Lean on visual and hands-on examples (counting objects, shapes, basic fractions).",
     "middle_school":     "Use simple language. Avoid jargon. Relate to everyday examples.",
     "high_school":       "Use standard notation. Assume basic algebra and geometry knowledge.",
     "ap_ib":             "Use rigorous notation. Reference relevant theorems by name.",
-    "community_college": "Assume pre-calculus or calculus I background. Use clear notation with brief reminders of prerequisite concepts.",
+    "college":           "Assume pre-calculus or calculus I background. Use clear notation with brief reminders of prerequisite concepts.",
     "university":        "Use university-level rigor. Reference theorems formally.",
     "graduate":          "Use research-level notation. Prove all claims rigorously.",
     "professional":      "Assume expert knowledge. Focus on efficiency and correctness.",
@@ -498,17 +499,42 @@ def _level_str(level: str, sublevel: Optional[str]) -> str:
     return base
 
 
-CURRICULUM_CONTEXT = {
-    "general":   "General mathematics curriculum.",
-    "waec":      "West African Examinations Council (WAEC) syllabus. Use WAEC-style question formatting and mark-scheme language.",
-    "cambridge":  "Cambridge International AS & A Level / IGCSE curriculum. Follow Cambridge notation, mark-scheme conventions, and command words (show, prove, hence, etc.).",
-    "ib":         "International Baccalaureate (IB) Mathematics — Applications & Interpretation or Analysis & Approaches. Use IB command terms (find, determine, justify, etc.) and GDC context where relevant.",
-    "ap":         "College Board AP Mathematics (AP Calculus AB/BC, AP Statistics, AP Precalculus). Follow College Board format and free-response conventions.",
-    "gcse":       "UK GCSE Mathematics. Target grade 1–9 range; use Ofqual-approved methods and show systematic working expected in GCSE mark schemes.",
-    "sat":        "SAT / ACT Mathematics test preparation. Use multiple-choice and grid-in formats where applicable; focus on time-efficient strategies.",
-    "abet":       "ABET engineering mathematics standards. Frame solutions in engineering contexts; use SI units and reference standard engineering theorems.",
-    "tvet":       "Technical and Vocational Education and Training (TVET) applied mathematics. Emphasise real-world trade/technical applications.",
-}
+# Derived from the shared Curriculum Registry (app/services/curriculum_registry.py)
+# rather than hardcoded here — that registry is the single source of AI
+# curriculum-calibration text now, so a curriculum added there (e.g. a new
+# Cambridge or IB track) is automatically usable by every endpoint below
+# with no change to this file. The four legacy short keys this dict used to
+# hardcode ("cambridge", "ib", "sat") have been superseded by the registry's
+# more granular leaves (cambridge_igcse, ib_dp_aa, sat_act, etc.) — an
+# old/unrecognized key here still safely falls back to "general" at each
+# call site below via `.get(req.curriculum, CURRICULUM_CONTEXT["general"])`.
+CURRICULUM_CONTEXT = {key: entry["ai_notes"] for key, entry in CURRICULUM_REGISTRY.items()}
+
+
+def curriculum_context(curriculum: str, track: Optional[str] = None) -> str:
+    """Resolve a curriculum + optional track (e.g. 'HL', 'Extended') into the
+    AI-calibration text dropped into a prompt. Unrecognized/unset curriculum
+    falls back to General, same as the bare dict lookup this replaces."""
+    notes = CURRICULUM_CONTEXT.get(curriculum, CURRICULUM_CONTEXT["general"])
+    if track:
+        notes += f" Calibrate specifically to the {track} track/tier."
+    return notes
+
+
+def career_context(user: User, level: str, curriculum: str, curriculum_track: Optional[str] = None) -> str:
+    """Career-interest + learning-goal framing from the account profile,
+    threaded into every AI-calling tool endpoint below (Solve, Explore,
+    Practice, Theory, Objectives, Visualize, Simulate, Applications,
+    Scenario). Previously only Mentor called build_personalization_context()
+    — every other tool only ever received level + curriculum, so an
+    account's Career Interest/Specialization never reached the AI prompt
+    for them, even while the UI displayed "Personalization Active"."""
+    return build_personalization_context(
+        user,
+        level_override=level,
+        curriculum_override=curriculum,
+        curriculum_track_override=curriculum_track,
+    ).career_block()
 
 PRACTICE_PROMPT = """Generate {count} {difficulty} practice problems for:
 
@@ -516,6 +542,9 @@ SUBJECT: {subject}
 TOPIC (optional): {topic}
 EDUCATION LEVEL: {level}
 CURRICULUM STANDARD: {curriculum}
+{personalization}
+
+If a career interest is specified above, frame 1-2 of the {count} problems as word problems set in that career context (the underlying mathematics and difficulty must stay equivalent to the other problems — personalize the scenario, never the rigor).
 
 CRITICAL FORMATTING RULES:
 - Use $...$ for inline math (e.g. $x^2 + 1$)
@@ -553,7 +582,8 @@ class SolveRequest(BaseModel):
     sublevel: Optional[str] = None
     style: str = "detailed"
     curriculum: str = "general"
-    model_name: str = "gpt-4o"
+    curriculum_track: Optional[str] = None
+    ai_mode: str = "smart"
     max_tokens: Optional[int] = None
 
 
@@ -565,7 +595,8 @@ class ExploreRequest(BaseModel):
     sublevel: Optional[str] = None
     example_count: int = 3
     curriculum: str = "general"
-    model_name: str = "gpt-4o"
+    curriculum_track: Optional[str] = None
+    ai_mode: str = "smart"
     max_tokens: Optional[int] = None
 
 
@@ -578,7 +609,8 @@ class PracticeRequest(BaseModel):
     count: int = 5
     difficulty: str = "medium"
     curriculum: str = "general"
-    model_name: str = "gpt-4o"
+    curriculum_track: Optional[str] = None
+    ai_mode: str = "smart"
     max_tokens: Optional[int] = None
 
 
@@ -669,7 +701,8 @@ class TheoryRequest(BaseModel):
     sublevel: Optional[str] = None
     theory_level: str = "intermediate"   # beginner | intermediate | advanced | university
     curriculum: str = "general"
-    model_name: str = "gpt-4o"
+    curriculum_track: Optional[str] = None
+    ai_mode: str = "smart"
     max_tokens: Optional[int] = None
 
 
@@ -679,7 +712,8 @@ class ObjectivesRequest(BaseModel):
     subject: str = "algebra"
     level: str = "high_school"
     curriculum: str = "general"
-    model_name: str = "gpt-4o"
+    curriculum_track: Optional[str] = None
+    ai_mode: str = "smart"
 
 
 class VisualizeRequest(BaseModel):
@@ -688,7 +722,8 @@ class VisualizeRequest(BaseModel):
     subject: str = "algebra"
     level: str = "high_school"
     curriculum: str = "general"
-    model_name: str = "gpt-4o"
+    curriculum_track: Optional[str] = None
+    ai_mode: str = "smart"
 
 
 class SimulateRequest(BaseModel):
@@ -697,7 +732,8 @@ class SimulateRequest(BaseModel):
     subject: str = "algebra"
     level: str = "high_school"
     curriculum: str = "general"
-    model_name: str = "gpt-4o"
+    curriculum_track: Optional[str] = None
+    ai_mode: str = "smart"
 
 
 class ApplicationsRequest(BaseModel):
@@ -706,8 +742,9 @@ class ApplicationsRequest(BaseModel):
     subject: str = "algebra"
     level: str = "high_school"
     curriculum: str = "general"
-    model_name: str = "gpt-4o"
-    image_model: str = "gpt-image-1"
+    curriculum_track: Optional[str] = None
+    ai_mode: str = "smart"
+    image_mode: str = "diagram"
 
 
 class ReformulateRequest(BaseModel):
@@ -715,6 +752,7 @@ class ReformulateRequest(BaseModel):
     subject: str = "general"
     level: str = "high_school"
     curriculum: str = "general"
+    curriculum_track: Optional[str] = None
     context: str = "general"  # theory | visualization | simulation | applications | solve
 
 
@@ -724,8 +762,9 @@ class ScenarioRequest(BaseModel):
     subject: str = "algebra"
     level: str = "high_school"
     curriculum: str = "general"
-    model_name: str = "gpt-4o"
-    image_model: str = "gpt-image-1"   # gpt-image-1 | dall-e-3
+    curriculum_track: Optional[str] = None
+    ai_mode: str = "smart"
+    image_mode: str = "diagram"   # diagram | creative
 
 
 SCENARIO_PROMPT = """You are an expert mathematics educator creating immersive real-world scenarios.
@@ -734,6 +773,7 @@ Topic: {topic}
 Subject: {subject}
 Level: {level}
 Curriculum: {curriculum}
+{personalization}
 
 Generate a compelling two-part scenario that shows how this mathematics solves a real engineering or scientific problem.
 
@@ -792,8 +832,7 @@ async def call_openai(system: str, prompt: str, model: str, max_tokens: int) -> 
 async def call_anthropic(system: str, prompt: str, model: str, max_tokens: int) -> tuple[str, int, int]:
     if not ANTHROPIC_AVAILABLE or not getattr(settings, "ANTHROPIC_API_KEY", ""):
         raise HTTPException(500, "Anthropic not configured. Set ANTHROPIC_API_KEY.")
-    model_map = ANTHROPIC_MODEL_MAP
-    api_model = model_map.get(model, model)
+    api_model = get_deployment_id(model)
     client = anthropic_sdk.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY, timeout=180.0)
     resp = await client.messages.create(
         model=api_model,
@@ -811,7 +850,7 @@ async def call_gemini(system: str, prompt: str, model: str, max_tokens: int) -> 
     api_key = getattr(settings, "GOOGLE_API_KEY", "") or ""
     if not api_key:
         raise HTTPException(500, "GOOGLE_API_KEY not configured.")
-    gemini_model_id = GEMINI_MODEL_MAP.get(model, "gemini-1.5-pro")
+    gemini_model_id = get_deployment_id(model)
     def _sync_call():
         genai.configure(api_key=api_key)
         gm = genai.GenerativeModel(model_name=gemini_model_id, system_instruction=system)
@@ -821,18 +860,23 @@ async def call_gemini(system: str, prompt: str, model: str, max_tokens: int) -> 
     return text, 0, 0
 
 
-async def dispatch(system: str, prompt: str, model: str, max_tokens: int) -> tuple[str, int, int]:
-    provider = MODEL_PROVIDER_MAP.get(model, "openai")
+async def dispatch(system: str, prompt: str, ai_mode: str, max_tokens: int) -> tuple[str, int, int]:
+    """Resolve a public AI mode (e.g. "smart", or a legacy raw model id for
+    any not-yet-migrated caller) to an approved deployment via the Model
+    Capability Registry™, then call that deployment's provider."""
+    entry = resolve_text_mode(ai_mode)
+    model = entry.id
+    provider = entry.provider
     if provider == "google":
         google_key = getattr(settings, "GOOGLE_API_KEY", "") or ""
         if not google_key or not GEMINI_AVAILABLE:
-            logger.warning("[dispatch] GOOGLE_API_KEY not set — falling back to gpt-4o for model %s", model)
+            logger.warning("[dispatch] GOOGLE_API_KEY not set — falling back to Smart (gpt-4o) for ai_mode %s", ai_mode)
             return await call_openai(system, prompt, "gpt-4o", max_tokens)
         return await call_gemini(system, prompt, model, max_tokens)
     if provider == "anthropic":
         anthropic_key = getattr(settings, "ANTHROPIC_API_KEY", "") or ""
         if not anthropic_key or not ANTHROPIC_AVAILABLE:
-            logger.warning("[dispatch] ANTHROPIC_API_KEY not set — falling back to gpt-4o for model %s", model)
+            logger.warning("[dispatch] ANTHROPIC_API_KEY not set — falling back to Smart (gpt-4o) for ai_mode %s", ai_mode)
             return await call_openai(system, prompt, "gpt-4o", max_tokens)
         return await call_anthropic(system, prompt, model, max_tokens)
     return await call_openai(system, prompt, model, max_tokens)
@@ -880,7 +924,7 @@ async def solve(
             subject_enum = s
             break
 
-    curriculum_ctx = CURRICULUM_CONTEXT.get(req.curriculum, CURRICULUM_CONTEXT["general"])
+    curriculum_ctx = curriculum_context(req.curriculum, req.curriculum_track)
     level_full = _level_str(req.level, req.sublevel)
     prompt = SOLVE_PROMPT.format(
         problem=req.problem,
@@ -888,13 +932,14 @@ async def solve(
         level=level_full,
         style=req.style.title(),
         curriculum=curriculum_ctx,
+        personalization=career_context(current_user, req.level, req.curriculum, req.curriculum_track),
         steps_instruction=steps_instruction.get(req.style, steps_instruction["detailed"]),
         difficulty_note=f"TONE: {DIFFICULTY_NOTES.get(req.level, '')}",
     )
 
     start_ms = int(time.time() * 1000)
     try:
-        output, prompt_tok, completion_tok = await dispatch(SOLVE_SYSTEM, prompt, req.model_name, max_tokens)
+        output, prompt_tok, completion_tok = await dispatch(SOLVE_SYSTEM, prompt, req.ai_mode, max_tokens)
     except Exception as e:
         logger.error(f"[solve] {type(e).__name__}: {e}", exc_info=True)
         raise _ai_http_error("solve", e)
@@ -906,7 +951,7 @@ async def solve(
         session_type=SessionType.solve,
         subject=subject_enum,
         level=req.level,
-        model_name=req.model_name,
+        model_name=resolve_text_mode(req.ai_mode).id,
         input_text=req.problem,
         output_text=output,
         prompt_tokens=prompt_tok,
@@ -939,6 +984,11 @@ async def solve(
     except Exception:
         pass
 
+    await log_evidence_event(
+        db, current_user, EvidenceSource.solve,
+        subject=req.subject, math_session_id=session.id,
+    )
+
     return _session_out(session)
 
 
@@ -956,18 +1006,19 @@ async def explore(
             subject_enum = s
             break
 
-    curriculum_ctx = CURRICULUM_CONTEXT.get(req.curriculum, CURRICULUM_CONTEXT["general"])
+    curriculum_ctx = curriculum_context(req.curriculum, req.curriculum_track)
     prompt = EXPLORE_PROMPT.format(
         topic=req.topic,
         subject=req.subject.replace("_", " ").title(),
         level=_level_str(req.level, req.sublevel),
         example_count=req.example_count,
         curriculum=curriculum_ctx,
+        personalization=career_context(current_user, req.level, req.curriculum, req.curriculum_track),
     )
 
     start_ms = int(time.time() * 1000)
     try:
-        output, prompt_tok, completion_tok = await dispatch(EXPLORE_SYSTEM, prompt, req.model_name, max_tokens)
+        output, prompt_tok, completion_tok = await dispatch(EXPLORE_SYSTEM, prompt, req.ai_mode, max_tokens)
     except Exception as e:
         raise _ai_http_error("explore", e)
 
@@ -980,7 +1031,7 @@ async def explore(
         session_type=SessionType.explore,
         subject=subject_enum,
         level=req.level,
-        model_name=req.model_name,
+        model_name=resolve_text_mode(req.ai_mode).id,
         input_text=req.topic,
         output_text=output,
         prompt_tokens=prompt_tok,
@@ -991,6 +1042,12 @@ async def explore(
     db.add(session)
     await db.commit()
     await db.refresh(session)
+
+    await log_evidence_event(
+        db, current_user, EvidenceSource.explore,
+        subject=req.subject, topic=req.topic, math_session_id=session.id,
+    )
+
     return _session_out(session)
 
 
@@ -1008,7 +1065,7 @@ async def practice(
             subject_enum = s
             break
 
-    curriculum_ctx = CURRICULUM_CONTEXT.get(req.curriculum, CURRICULUM_CONTEXT["general"])
+    curriculum_ctx = curriculum_context(req.curriculum, req.curriculum_track)
     prompt = PRACTICE_PROMPT.format(
         count=req.count,
         difficulty=req.difficulty.title(),
@@ -1016,12 +1073,13 @@ async def practice(
         topic=req.topic or "any topic in this subject",
         level=_level_str(req.level, req.sublevel),
         curriculum=curriculum_ctx,
+        personalization=career_context(current_user, req.level, req.curriculum, req.curriculum_track),
         n="{n}",
     )
 
     start_ms = int(time.time() * 1000)
     try:
-        output, prompt_tok, completion_tok = await dispatch(PRACTICE_SYSTEM, prompt, req.model_name, max_tokens)
+        output, prompt_tok, completion_tok = await dispatch(PRACTICE_SYSTEM, prompt, req.ai_mode, max_tokens)
     except Exception as e:
         raise _ai_http_error("practice", e)
 
@@ -1032,7 +1090,7 @@ async def practice(
         session_type=SessionType.practice,
         subject=subject_enum,
         level=req.level,
-        model_name=req.model_name,
+        model_name=resolve_text_mode(req.ai_mode).id,
         input_text=f"{req.subject} — {req.topic or 'general'} — {req.difficulty} × {req.count}",
         output_text=output,
         prompt_tokens=prompt_tok,
@@ -1066,7 +1124,7 @@ async def theory(
             subject_enum = s
             break
 
-    curriculum_ctx = CURRICULUM_CONTEXT.get(req.curriculum, CURRICULUM_CONTEXT["general"])
+    curriculum_ctx = curriculum_context(req.curriculum, req.curriculum_track)
     level_full = _level_str(req.level, req.sublevel)
     theory_desc = THEORY_LEVEL_DESC.get(req.theory_level, THEORY_LEVEL_DESC["intermediate"])
 
@@ -1076,11 +1134,12 @@ async def theory(
         level=level_full,
         theory_level=theory_desc,
         curriculum=curriculum_ctx,
+        personalization=career_context(current_user, req.level, req.curriculum, req.curriculum_track),
     )
 
     start_ms = int(time.time() * 1000)
     try:
-        output, prompt_tok, completion_tok = await dispatch(THEORY_SYSTEM, prompt, req.model_name, max_tokens)
+        output, prompt_tok, completion_tok = await dispatch(THEORY_SYSTEM, prompt, req.ai_mode, max_tokens)
     except Exception as e:
         logger.error(f"[theory] {type(e).__name__}: {e}", exc_info=True)
         raise _ai_http_error("theory", e)
@@ -1099,7 +1158,7 @@ async def theory(
         session_type=SessionType.theory,
         subject=subject_enum,
         level=req.level,
-        model_name=req.model_name,
+        model_name=resolve_text_mode(req.ai_mode).id,
         input_text=req.topic,
         output_text=output,
         prompt_tokens=prompt_tok,
@@ -1110,6 +1169,12 @@ async def theory(
     db.add(session)
     await db.commit()
     await db.refresh(session)
+
+    await log_evidence_event(
+        db, current_user, EvidenceSource.theory,
+        subject=req.subject, topic=req.topic, math_session_id=session.id,
+    )
+
     return _session_out(session)
 
 
@@ -1125,14 +1190,15 @@ async def objectives(
         topic=req.topic,
         subject=req.subject.replace("_", " ").title(),
         level=LEVEL_LABELS.get(req.level, req.level.replace("_", " ").title()),
-        curriculum=CURRICULUM_CONTEXT.get(req.curriculum, CURRICULUM_CONTEXT["general"]),
+        curriculum=curriculum_context(req.curriculum, req.curriculum_track),
+        personalization=career_context(current_user, req.level, req.curriculum, req.curriculum_track),
     )
 
     try:
         raw, _, _ = await dispatch(
             "You are a JSON generator. Return only valid JSON arrays. No markdown, no explanation.",
             prompt,
-            req.model_name,
+            req.ai_mode,
             800,
         )
         # Strip potential markdown code fences
@@ -1207,17 +1273,18 @@ async def visualize(
     current_user: User = Depends(get_current_user),
 ):
     """Visualization Gallery — generate 3 charts illuminating different aspects of a topic."""
-    curriculum_ctx = CURRICULUM_CONTEXT.get(req.curriculum, CURRICULUM_CONTEXT["general"])
+    curriculum_ctx = curriculum_context(req.curriculum, req.curriculum_track)
     prompt = VISUALIZE_PROMPT.format(
         topic=req.topic,
         subject=req.subject.replace("_", " ").title(),
         level=LEVEL_LABELS.get(req.level, req.level.replace("_", " ").title()),
         curriculum=curriculum_ctx,
+        personalization=career_context(current_user, req.level, req.curriculum, req.curriculum_track),
     )
     try:
         raw, _, _ = await dispatch(
             "You are a JSON generator for a math visualization system. Return only valid JSON. No markdown.",
-            prompt, req.model_name, 1500,
+            prompt, req.ai_mode, 1500,
         )
         result = _parse_json_response(raw)
     except Exception as e:
@@ -1243,17 +1310,18 @@ async def simulate(
     current_user: User = Depends(get_current_user),
 ):
     """Simulation Intelligence™ — interactive parameter-based simulation for a topic."""
-    curriculum_ctx = CURRICULUM_CONTEXT.get(req.curriculum, CURRICULUM_CONTEXT["general"])
+    curriculum_ctx = curriculum_context(req.curriculum, req.curriculum_track)
     prompt = SIMULATE_PROMPT.format(
         topic=req.topic,
         subject=req.subject.replace("_", " ").title(),
         level=LEVEL_LABELS.get(req.level, req.level.replace("_", " ").title()),
         curriculum=curriculum_ctx,
+        personalization=career_context(current_user, req.level, req.curriculum, req.curriculum_track),
     )
     try:
         raw, _, _ = await dispatch(
             "You are a JSON generator for an interactive math simulation system. Return only valid JSON. No markdown.",
-            prompt, req.model_name, 1000,
+            prompt, req.ai_mode, 1000,
         )
         result = _parse_json_response(raw)
     except Exception as e:
@@ -1284,17 +1352,18 @@ async def applications(
 ):
     """Applications Intelligence™ — real-world applications + gpt-image-1 images for each."""
     import asyncio
-    curriculum_ctx = CURRICULUM_CONTEXT.get(req.curriculum, CURRICULUM_CONTEXT["general"])
+    curriculum_ctx = curriculum_context(req.curriculum, req.curriculum_track)
     prompt = APPLICATIONS_PROMPT.format(
         topic=req.topic,
         subject=req.subject.replace("_", " ").title(),
         level=LEVEL_LABELS.get(req.level, req.level.replace("_", " ").title()),
         curriculum=curriculum_ctx,
+        personalization=career_context(current_user, req.level, req.curriculum, req.curriculum_track),
     )
     try:
         raw, _, _ = await dispatch(
             "You are a JSON generator for a math applications system. Return only valid JSON. No markdown.",
-            prompt, req.model_name, 2000,
+            prompt, req.ai_mode, 2000,
         )
         result = _parse_json_response(raw)
     except Exception as e:
@@ -1317,7 +1386,7 @@ async def applications(
         }
 
     # Generate one photorealistic image per application (parallel)
-    img_model = req.image_model or "gpt-image-1"
+    img_model = resolve_image_mode(req.image_mode).deployment_id
     app_list = result.get("applications", [])
 
     async def gen_app_image(image_prompt: str, label: str = "") -> str:
@@ -1424,19 +1493,20 @@ async def scenario(
     if not OPENAI_AVAILABLE or not getattr(settings, "OPENAI_API_KEY", ""):
         raise HTTPException(500, "OpenAI not configured. Set OPENAI_API_KEY.")
 
-    curriculum_ctx = CURRICULUM_CONTEXT.get(req.curriculum, CURRICULUM_CONTEXT["general"])
+    curriculum_ctx = curriculum_context(req.curriculum, req.curriculum_track)
     prompt = SCENARIO_PROMPT.format(
         topic=req.topic,
         subject=req.subject.replace("_", " ").title(),
         level=LEVEL_LABELS.get(req.level, req.level.replace("_", " ").title()),
         curriculum=curriculum_ctx,
+        personalization=career_context(current_user, req.level, req.curriculum, req.curriculum_track),
     )
 
     # Step 1 — LLM generates scenario text + image prompts
     try:
         raw, _, _ = await dispatch(
             "You are a JSON generator. Return only valid JSON with no markdown fences.",
-            prompt, req.model_name, 1500,
+            prompt, req.ai_mode, 1500,
         )
         data = _parse_json_response(raw)
         problem_prompt      = data.get("problem_prompt", "")
@@ -1450,7 +1520,7 @@ async def scenario(
         raise _ai_http_error("scenario", e)
 
     # Step 2 — Generate images; gpt-image-1 always returns b64, dall-e-3 needs response_format
-    img_model = req.image_model or "gpt-image-1"
+    img_model = resolve_image_mode(req.image_mode).deployment_id
 
     async def gen_image_b64(image_prompt: str, label: str = "") -> str:
         """Returns base64-encoded PNG string, or empty string on any failure."""

@@ -12,9 +12,16 @@ from app.routers import auth, math
 from app.routers import mentor as mentor_router
 from app.routers import data as data_router
 from app.routers import projects as projects_router
+from app.routers import ar_vr as ar_vr_router
+from app.routers import goals as goals_router
+from app.routers import outcomes as outcomes_router
+from app.routers import admin as admin_router
 # Ensure new models are registered with Base metadata
 import app.models.mentor   # noqa: F401
 import app.models.project  # noqa: F401
+import app.models.learning_goals  # noqa: F401
+import app.models.evidence  # noqa: F401
+import app.models.insight  # noqa: F401
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -52,6 +59,10 @@ app.include_router(math.router, prefix=PREFIX)
 app.include_router(mentor_router.router, prefix=PREFIX)
 app.include_router(data_router.router, prefix=PREFIX)
 app.include_router(projects_router.router, prefix=PREFIX)
+app.include_router(ar_vr_router.router, prefix=PREFIX)
+app.include_router(goals_router.router, prefix=PREFIX)
+app.include_router(outcomes_router.router, prefix=PREFIX)
+app.include_router(admin_router.router, prefix=PREFIX)
 
 
 # ── Startup ───────────────────────────────────────────────────────────────────
