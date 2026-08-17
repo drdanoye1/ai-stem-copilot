@@ -1,0 +1,211 @@
+"use client";
+import { useEffect, useState } from "react";
+import { goalsApi, getErrorMessage, type LearningPlan, type LearningGoal } from "@/lib/api";
+import { Target, RefreshCw, Sparkles, CheckCircle2, Compass } from "lucide-react";
+
+const ACCENT = "#34d399";
+
+function GoalCard({ goal, index }: { goal: LearningGoal; index: number }) {
+  return (
+    <div
+      className="rounded-2xl p-5"
+      style={{ background: "rgba(52,211,153,0.05)", border: "1px solid rgba(52,211,153,0.15)" }}
+    >
+      <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+        <span
+          className="text-[11px] font-semibold uppercase tracking-widest"
+          style={{ color: ACCENT }}
+        >
+          Goal {index + 1} &middot; {goal.subject.replace(/_/g, " ")}
+          {goal.topic ? ` — ${goal.topic}` : ""}
+        </span>
+        <span
+          className="text-[11px] font-medium px-2 py-0.5 rounded-full"
+          style={{ background: "rgba(52,211,153,0.12)", color: ACCENT }}
+        >
+          {goal.cognitive_target}
+        </span>
+      </div>
+
+      <h3 className="text-[15px] font-semibold mb-3" style={{ color: "#f1f5f9" }}>
+        {goal.curriculum_goal}
+      </h3>
+
+      <div className="space-y-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-widest mb-1" style={{ color: "#64748b" }}>
+            Learning Objective
+          </p>
+          <p className="text-sm" style={{ color: "#cbd5e1" }}>{goal.learning_objective}</p>
+        </div>
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-widest mb-1" style={{ color: "#64748b" }}>
+            Expected Outcome
+          </p>
+          <p className="text-sm" style={{ color: "#cbd5e1" }}>{goal.expected_outcome}</p>
+        </div>
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-widest mb-1" style={{ color: "#64748b" }}>
+            Application Outcome
+          </p>
+          <p className="text-sm" style={{ color: "#cbd5e1" }}>{goal.application_outcome}</p>
+        </div>
+        <div className="flex items-start gap-2 pt-2" style={{ borderTop: "1px solid rgba(148,163,184,0.1)" }}>
+          <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style={{ color: ACCENT }} />
+          <p className="text-xs" style={{ color: "#94a3b8" }}>{goal.success_criterion}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LoadingSkeleton() {
+  return (
+    <div className="space-y-4">
+      {[0, 1, 2].map(i => (
+        <div
+          key={i}
+          className="rounded-2xl p-5 animate-pulse"
+          style={{ background: "rgba(148,163,184,0.05)", border: "1px solid rgba(148,163,184,0.1)" }}
+        >
+          <div className="h-3 w-40 rounded mb-4" style={{ background: "rgba(148,163,184,0.15)" }} />
+          <div className="h-4 w-3/4 rounded mb-4" style={{ background: "rgba(148,163,184,0.15)" }} />
+          <div className="h-3 w-full rounded mb-2" style={{ background: "rgba(148,163,184,0.1)" }} />
+          <div className="h-3 w-5/6 rounded" style={{ background: "rgba(148,163,184,0.1)" }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function GoalsPage() {
+  const [plan, setPlan] = useState<LearningPlan | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = () => {
+    setLoading(true);
+    setError(null);
+    goalsApi.getActive()
+      .then(({ data }) => setPlan(data))
+      .catch(err => setError(getErrorMessage(err)))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleGenerate = async () => {
+    setGenerating(true);
+    setError(null);
+    try {
+      const { data } = await goalsApi.generate();
+      setPlan(data);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <div className="max-w-4xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
+      <div className="flex items-center justify-between gap-4 flex-wrap mb-10">
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <div
+              className="w-8 h-8 rounded-lg flex items-center justify-center"
+              style={{ background: "rgba(52,211,153,0.12)" }}
+            >
+              <Target className="w-4 h-4" style={{ color: ACCENT }} />
+            </div>
+            <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: ACCENT }}>
+              My Goals
+            </span>
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-bold" style={{ color: "#f1f5f9" }}>
+            Your Personalized Learning Plan
+          </h1>
+          <p className="text-sm mt-1" style={{ color: "#94a3b8" }}>
+            Your Learning Aim and Curriculum Goals, generated by the AI Learning Goals &amp; Objectives Engine
+            from your education level, curriculum, and career interest.
+          </p>
+        </div>
+
+        {plan && (
+          <button
+            onClick={handleGenerate}
+            disabled={generating}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+            style={{ background: "rgba(52,211,153,0.12)", color: ACCENT, border: "1px solid rgba(52,211,153,0.25)" }}
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${generating ? "animate-spin" : ""}`} />
+            {generating ? "Regenerating..." : "Regenerate Plan"}
+          </button>
+        )}
+      </div>
+
+      {error && (
+        <div
+          className="rounded-xl p-4 mb-6 text-sm"
+          style={{ background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.2)", color: "#fca5a5" }}
+        >
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <LoadingSkeleton />
+      ) : plan ? (
+        <>
+          <div
+            className="rounded-2xl p-5 mb-6"
+            style={{ background: "rgba(52,211,153,0.08)", border: "1px solid rgba(52,211,153,0.2)" }}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <Sparkles className="w-3.5 h-3.5" style={{ color: ACCENT }} />
+              <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: ACCENT }}>
+                Learning Aim
+              </span>
+            </div>
+            <p className="text-[15px]" style={{ color: "#f1f5f9" }}>{plan.learning_aim}</p>
+          </div>
+
+          <div className="space-y-4">
+            {plan.goals.map((goal, i) => (
+              <GoalCard key={goal.id} goal={goal} index={i} />
+            ))}
+          </div>
+        </>
+      ) : (
+        <div
+          className="rounded-2xl p-10 text-center"
+          style={{ background: "rgba(148,163,184,0.04)", border: "1px solid rgba(148,163,184,0.1)" }}
+        >
+          <div
+            className="w-12 h-12 rounded-xl flex items-center justify-center mx-auto mb-4"
+            style={{ background: "rgba(52,211,153,0.12)" }}
+          >
+            <Compass className="w-6 h-6" style={{ color: ACCENT }} />
+          </div>
+          <h2 className="text-lg font-semibold mb-2" style={{ color: "#f1f5f9" }}>
+            No plan yet
+          </h2>
+          <p className="text-sm mb-6 max-w-md mx-auto" style={{ color: "#94a3b8" }}>
+            Generate a personalized Learning Aim and three Curriculum Goals based on your education level,
+            curriculum, and career interest.
+          </p>
+          <button
+            onClick={handleGenerate}
+            disabled={generating}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-50"
+            style={{ background: ACCENT, color: "#022c22" }}
+          >
+            <Sparkles className={`w-4 h-4 ${generating ? "animate-spin" : ""}`} />
+            {generating ? "Generating..." : "Generate Plan"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
