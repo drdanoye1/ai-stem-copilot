@@ -72,7 +72,31 @@ export interface User {
   full_name?: string;
   role: string;
   level: string;
+  // Optional, only meaningful for levels with sub-tiers (middle_school,
+  // high_school, college, university) — e.g. "grade_9", "year_2". Lets an
+  // account (especially a parent tracking a learner's educational path)
+  // record a precise grade/year, not just the broad Education Level.
+  grade_year?: string | null;
+  // Curriculum ground truth — see lib/personalization-taxonomy.ts for the
+  // full registry. curriculum_track only applies to the handful of
+  // curricula with a real sub-track (e.g. IB DP SL/HL, Cambridge IGCSE
+  // Core/Extended).
+  curriculum?: string | null;
+  curriculum_track?: string | null;
+  // Gates the onboarding wizard — true for every account that existed
+  // before the wizard shipped (backfilled by migration 006).
+  has_completed_onboarding?: boolean;
   plan?: string;          // "free" | "pro" | "enterprise" — set by admin
+  // Personalization context — see AI Personalization Context Engine. All
+  // optional on the frontend type (rather than required, as the backend's
+  // UserOut has them) because login/register/oauth responses build a User
+  // object by hand from a slimmer TokenResponse that doesn't carry these —
+  // they only arrive once /auth/me is fetched. Treat undefined the same as
+  // "not yet chosen" (career_interest/learning_goal) or "on" (personalization_enabled).
+  career_interest?: string | null;
+  career_specialization?: string | null;
+  learning_goal?: string | null;
+  personalization_enabled?: boolean;
   sessions_count: string;
   created_at: string;
 }
@@ -216,6 +240,7 @@ export interface MentorSession {
   topic: string;
   subject: string;
   level: string;
+  curriculum?: string;
   messages: MentorMessage[];
   turn_count: number;
   is_complete: boolean;
@@ -340,8 +365,18 @@ export const authApi = {
 
   me: () => api.get<User>("/auth/me"),
 
-  updateProfile: (data: { full_name?: string; level?: string }) =>
-    api.patch<User>("/auth/profile", data),
+  updateProfile: (data: {
+    full_name?: string;
+    level?: string;
+    grade_year?: string;
+    curriculum?: string;
+    curriculum_track?: string;
+    has_completed_onboarding?: boolean;
+    career_interest?: string;
+    career_specialization?: string;
+    learning_goal?: string;
+    personalization_enabled?: boolean;
+  }) => api.patch<User>("/auth/profile", data),
 
   forgotPassword: (email: string) =>
     api.post("/auth/forgot-password", { email }),
@@ -380,52 +415,52 @@ export interface SubjectInfo {
 export const mathApi = {
   solve: (data: {
     problem: string; subject: string; level: string;
-    sublevel?: string; style?: string; curriculum?: string; model_name?: string; max_tokens?: number;
+    sublevel?: string; style?: string; curriculum?: string; curriculum_track?: string; model_name?: string; max_tokens?: number;
   }) => api.post<MathSession>("/math/solve", data),
 
   explore: (data: {
     topic: string; subject: string; level: string;
-    sublevel?: string; curriculum?: string; model_name?: string;
+    sublevel?: string; curriculum?: string; curriculum_track?: string; model_name?: string;
     example_count?: number; max_tokens?: number;
   }) => api.post<MathSession>("/math/explore", data),
 
   practice: (data: {
     topic: string; subject: string; level: string;
-    sublevel?: string; curriculum?: string; difficulty?: string;
+    sublevel?: string; curriculum?: string; curriculum_track?: string; difficulty?: string;
     count?: number; model_name?: string; max_tokens?: number;
   }) => api.post<MathSession>("/math/practice", data),
 
   theory: (data: {
     topic: string; subject: string; level: string;
-    sublevel?: string; theory_level?: string; curriculum?: string; model_name?: string; max_tokens?: number;
+    sublevel?: string; theory_level?: string; curriculum?: string; curriculum_track?: string; model_name?: string; max_tokens?: number;
   }) => api.post<MathSession>("/math/theory", data),
 
   objectives: (data: {
     topic: string; subject: string; level: string;
-    curriculum?: string; model_name?: string; max_tokens?: number;
+    curriculum?: string; curriculum_track?: string; model_name?: string; max_tokens?: number;
   }) => api.post<ObjectivesResponse>("/math/objectives", data),
 
   reformulate: (data: {
     topic?: string; subject: string; level: string;
-    curriculum?: string; context?: string; model_name?: string; raw_input?: string;
+    curriculum?: string; curriculum_track?: string; context?: string; model_name?: string; raw_input?: string;
   }) => api.post<{ suggestions: string[] }>("/math/reformulate", data),
 
   scenario: (data: {
     topic: string; subject: string; level: string;
-    model_name?: string; max_tokens?: number; curriculum?: string;
+    model_name?: string; max_tokens?: number; curriculum?: string; curriculum_track?: string;
     image_model?: string;  // "gpt-image-1" (default) | "dall-e-3"
   }) => api.post<ScenarioResponse>("/math/scenario", data),
 
   visualize: (data: {
-    topic: string; subject: string; level: string; curriculum?: string; model_name?: string; max_tokens?: number;
+    topic: string; subject: string; level: string; curriculum?: string; curriculum_track?: string; model_name?: string; max_tokens?: number;
   }) => api.post<VisualizeResponse>("/math/visualize", data),
 
   simulate: (data: {
-    topic: string; subject: string; level: string; model_name?: string; curriculum?: string; max_tokens?: number;
+    topic: string; subject: string; level: string; model_name?: string; curriculum?: string; curriculum_track?: string; max_tokens?: number;
   }) => api.post<SimulateResponse>("/math/simulate", data),
 
   applications: (data: {
-    topic: string; subject: string; level: string; curriculum?: string; model_name?: string; image_model?: string; max_tokens?: number;
+    topic: string; subject: string; level: string; curriculum?: string; curriculum_track?: string; model_name?: string; image_model?: string; max_tokens?: number;
   }) => api.post<ApplicationsResponse>("/math/applications", data),
 
   mentor: {
@@ -464,7 +499,7 @@ export const mathApi = {
 // ── Standalone Mentor API (matches mentor/page.tsx interface) ─────────────────
 
 export const mentorApi = {
-  start: (data: { topic: string; subject: string; level: string; model_name?: string }) =>
+  start: (data: { topic: string; subject: string; level: string; curriculum?: string; curriculum_track?: string; model_name?: string }) =>
     api.post<MentorSession>("/math/mentor/start", data),
   respond: (data: { session_id: string; user_message: string; model_name?: string }) =>
     api.post<MentorSession>("/math/mentor/respond", {
@@ -474,6 +509,44 @@ export const mentorApi = {
     }),
   list: () => api.get<MentorSession[]>("/math/mentor"),
 };
+
+// ── AR/VR Curriculum, Interpretation & Career Context Layer ───────────────────
+
+export interface ArVrInterpretationSections {
+  your_result: string;
+  mathematical_meaning: string;
+  at_your_level: string;
+  curriculum_connection: string;
+  career_connection: string;
+  real_world_application: string;
+  career_skill_developed: string;
+  try_this_next: string;
+}
+
+export interface ArVrInterpretation {
+  experience_key: string;
+  topic: string;
+  education_level?: string;
+  curriculum?: string;
+  curriculum_track?: string | null;
+  career_interest?: string;
+  sections: ArVrInterpretationSections;
+}
+
+export const arVrApi = {
+  interpret: (data: {
+    experience_key: string;
+    topic: string;
+    subject?: string;
+    result_summary: string;
+    computed_values?: Record<string, unknown>;
+    level?: string;
+    curriculum?: string;
+    curriculum_track?: string;
+    model_name?: string;
+  }) => api.post<ArVrInterpretation>("/ar-vr/interpret", data),
+};
+
 export const dataApi = {
   worldBank: (indicator: string, country: string, startYear?: number, endYear?: number) =>
     api.get<DataResult>("/data/world-bank", { params: { indicator, country, start_year: startYear, end_year: endYear } }),
@@ -514,5 +587,137 @@ export const projectsApi = {
     api.post<ProjectFeedback>(`/math/projects/${projectId}/submit`, {
       work_text: studentWork,
       model_name: modelName ?? "gpt-4o",
+    }),
+};
+
+// ── Personalized Learning Goals, Objectives & Outcomes Plan API ───────────────
+
+export interface LearningGoal {
+  id: string;
+  curriculum_goal: string;
+  learning_objective: string;
+  expected_outcome: string;
+  application_outcome: string;
+  cognitive_target: string;
+  success_criterion: string;
+  subject: string;
+  topic?: string | null;
+  career_competency_key?: string | null;
+  sort_order: number;
+}
+
+export interface LearningPlan {
+  id: string;
+  learning_aim: string;
+  status: string;
+  created_at: string;
+  goals: LearningGoal[];
+}
+
+export const goalsApi = {
+  generate: () => api.post<LearningPlan>("/goals/generate"),
+  getActive: () => api.get<LearningPlan | null>("/goals/active"),
+};
+
+// ── Academic Outcomes, Mastery & Competency Measurement Framework API ─────────
+
+export interface StructuredPracticeProblem {
+  id: string;
+  problem_text: string;
+  difficulty: string;
+  subject: string;
+  topic?: string | null;
+}
+
+export interface PracticeSubmitResult {
+  is_correct: boolean;
+  grading_method: string;
+  solution_steps: string;
+  correct_answer: string;
+  mastery_state: string;
+}
+
+export interface MasteryTopic {
+  subject: string;
+  topic: string;
+  mastery_state: string;
+  evidence_count: number;
+  independent_correct_count: number;
+  last_evidence_at?: string | null;
+}
+
+export interface CareerCompetencySummary {
+  career_competency_key: string;
+  mastery_state: string;
+  evidence_count: number;
+  independent_correct_count: number;
+  last_evidence_at?: string | null;
+}
+
+export interface MasteryOverview {
+  topics: MasteryTopic[];
+  career_competencies: CareerCompetencySummary[];
+}
+
+export interface EvidenceEvent {
+  id: string;
+  source: string;
+  subject: string;
+  topic?: string | null;
+  bloom_level: string;
+  independence_level: string;
+  confidence: string;
+  is_correct?: boolean | null;
+  created_at?: string | null;
+}
+
+// ── Academic Outcomes / Mastery Dashboard (Part III) ───────────────────────────
+
+export interface TrendWeek {
+  week_start: string;
+  evidence_count: number;
+  independent_correct_count: number;
+}
+
+export interface OutcomesDashboard {
+  learner_name: string;
+  learner_email: string;
+  topics: MasteryTopic[];
+  career_competencies: CareerCompetencySummary[];
+  trends: TrendWeek[];
+}
+
+export interface Insight {
+  strengths: string;
+  opportunities: string;
+  next_steps: string;
+  generated_at?: string | null;
+  model_name: string;
+  from_cache: boolean;
+}
+
+export const outcomesApi = {
+  generateStructuredPractice: (data: {
+    subject?: string; topic?: string; level?: string; difficulty?: string;
+    curriculum?: string; curriculum_track?: string; model_name?: string;
+  }) => api.post<StructuredPracticeProblem[]>("/outcomes/practice/structured", data),
+
+  submitPracticeAnswer: (problemId: string, data: { submitted_answer: string; revealed_solution_first?: boolean }) =>
+    api.post<PracticeSubmitResult>(`/outcomes/practice/${problemId}/submit`, data),
+
+  getMastery: (learnerEmail?: string) =>
+    api.get<MasteryOverview>("/outcomes/mastery", { params: learnerEmail ? { learner_email: learnerEmail } : undefined }),
+
+  getEvidence: (subject: string, topic?: string, learnerEmail?: string) =>
+    api.get<EvidenceEvent[]>("/outcomes/evidence", { params: { subject, topic, learner_email: learnerEmail } }),
+
+  getDashboard: (learnerEmail?: string) =>
+    api.get<OutcomesDashboard>("/outcomes/dashboard", { params: learnerEmail ? { learner_email: learnerEmail } : undefined }),
+
+  getInsights: (opts?: { learnerEmail?: string; force?: boolean; modelName?: string }) =>
+    api.post<Insight>("/outcomes/insights", {
+      learner_email: opts?.learnerEmail,
+      force: opts?.force ?? false,
+      model_name: opts?.modelName ?? "gpt-4o",
     }),
 };
